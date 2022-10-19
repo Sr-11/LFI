@@ -42,6 +42,8 @@ def MatConvert(x, device, dtype):
 
 def Pdist2(x, y):
     """compute the paired distance between x and y."""
+    ###Supports m times n operation where m is not n
+    ###takes input with shape (n, out) and (m, out), returns output with shape (n, m)
     x_norm = (x ** 2).sum(1).view(-1, 1)
     if y is not None:
         y_norm = (y ** 2).sum(1).view(1, -1)
@@ -112,8 +114,33 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=
         Kxy = torch.exp(-Dxy / sigma0)
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
+def MMD_General(Fea, n, m, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True):
+    X = Fea[0:n, :] # fetch the sample 1 (features of deep networks)
+    Y = Fea[n:, :] # fetch the sample 2 (features of deep networks)
+    X_org = Fea_org[0:n, :] # fetch the original sample 1
+    Y_org = Fea_org[n:, :] # fetch the original sample 2
+    L = 1 # generalized Gaussian (if L>1)
+    Dxx = Pdist2(X, X) #shape n by n
+    Dyy = Pdist2(Y, Y) #shape m by m
+    Dxy = Pdist2(X, Y) #shape n by m
+    Dxx_org = Pdist2(X_org, X_org) 
+    Dyy_org = Pdist2(Y_org, Y_org)
+    Dxy_org = Pdist2(X_org, Y_org)
+    if is_smooth:
+        Kx = (1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma)
+        Ky = (1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma)
+        Kxy = (1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma)
+    else:
+        Kx = torch.exp(-Dxx / sigma0)
+        Ky = torch.exp(-Dyy / sigma0)
+        Kxy = torch.exp(-Dxy / sigma0)
+    is_var_computed=False
+    return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True)
+
+
+
 def MMDu_linear_kernel(Fea, len_s, is_var_computed=True, use_1sample_U=True):
-    """compute value of (deep) lineaer-kernel MMD and std of (deep) lineaer-kernel MMD using merged data."""
+    """compute value of (deep) linear-kernel MMD and std of (deep) lineaer-kernel MMD using merged data."""
     try:
         X = Fea[0:len_s, :]
         Y = Fea[len_s:, :]

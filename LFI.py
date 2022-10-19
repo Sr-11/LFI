@@ -1,10 +1,11 @@
 import numpy as np
 import torch
+import sys
 from sklearn.utils import check_random_state
-from utils import MatConvert, MMDu, TST_MMD_u, mmd2_permutations
+from utils import MatConvert, MMDu, TST_MMD_u, mmd2_permutations, MMD_General
 from matplotlib import pyplot as plt
 from tqdm import trange
-
+import pickle
 def sample_blobs_Q(N1, sigma_mx_2, rows=3, cols=3, rs=None):
     """Generate Blob-D for testing type-II error (or test power)."""
     """ Return: X,Y   """
@@ -50,7 +51,7 @@ class ModelLatentF(torch.nn.Module):
         fealant = self.latent(input)
         return fealant
 
-def LFI_plot(n_list=[100], path='./', with_error_bar=True):
+def LFI_plot(n_list, title="LFI_with_Blob" ,path='./', with_error_bar=True):
     Results_list = []
     fig = plt.figure(figsize=(10, 8))
     ZX_success = np.zeros(len(n_list))
@@ -72,9 +73,25 @@ def LFI_plot(n_list=[100], path='./', with_error_bar=True):
     plt.xlabel("m=n", fontsize=20)
     plt.ylabel("P(success)", fontsize=20)
     plt.legend(fontsize=20)
-    plt.savefig("LFI_with_Blob.png")
+    plt.savefig(title+'.png')
     plt.close()
     return fig
+
+def mmd(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
+    S = np.concatenate((X, Y), axis=0)
+    S = MatConvert(S, device, dtype)
+    Fea = model_u(S)
+    len_s = X.shape[0]
+    return MMDu(Fea, len_s, S, sigma, sigma0_u, ep)
+
+def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
+    S = np.concatenate((X, Y), axis=0)
+    S = MatConvert(S, device, dtype)
+    Fea = model_u(S)
+    n = X.shape[0]
+    m = Y.shape[0]
+    return MMD_General(Fea, n, m, S, sigma, sigma0_u, ep)
+
 
 if __name__ == "__main__":
     # Setup seeds
@@ -83,17 +100,28 @@ if __name__ == "__main__":
     # Setup for all experiments
     dtype = torch.float
     device = torch.device("cuda:0")
+    title=sys.argv[1]
     N_per = 100 # permutation times
     alpha = 0.05 # test threshold
-    n_list = [10,50,100] # number of samples in per mode
+    n_list = 10*np.array(range(1,11)) # number of samples in per mode
+    m_list = 5*np.array(range(1,11))
     x_in = 2 # number of neurons in the input layer, i.e., dimension of data
     H = 50 # number of neurons in the hidden layer
     x_out = 50 # number of neurons in the output layer
     learning_rate = 0.0005 # learning rate for MMD-D on Blob
     N_epoch = 1000 # number of training epochs
-    K = 10 # number of trails
-    N = 100 # # number of test sets
-    N_f = 100.0 # number of test sets (float)
+    K = 15 # number of trials
+    N = 200 # # number of test sets
+    N_f = float(N) # number of test sets (float)
+    parameters={'n_list':n_list,
+                'm_list':m_list,
+                'N_epoch':N_epoch,
+                'N_per':N_per,
+                'K':K,
+                'N':N,
+    }
+    with open('./PARAMETERS_'+title, 'wb') as pickle_file:
+        pickle.dump(parameters, pickle_file)
     # Generate variance and co-variance matrix of Q
     sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
     sigma_mx_2 = np.zeros([9,2,2])
@@ -109,9 +137,10 @@ if __name__ == "__main__":
             sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
             sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
 
-    for n in n_list:
-        m=n
-        print("##### Start m=n=%d #####"%n)
+    for i in range(len(n_list)):
+        n=n_list[i]
+        m=m_list[i]
+        print("##### Starting n=%d and m=%d #####"%(n, m))
         print("##### K=%d big loops, N=%d small loops. #####"%(K,N))
         Results = np.zeros([2, K])
         J_star_u = np.zeros([K, N_epoch])
@@ -165,7 +194,6 @@ if __name__ == "__main__":
                     print("mmd_value: ", -1 * mmd_value_temp.item(), 
                           "mmd_std: ", mmd_std_temp.item(), 
                           "Statistic J: ", -1 * STAT_u.item())
-
             h_u, threshold_u, mmd_value_u = TST_MMD_u(model_u(S), N_per, n, S, sigma, sigma0_u, alpha, device,
                                                       dtype, ep)
             ep_OPT[kk] = ep.item()
@@ -175,38 +203,33 @@ if __name__ == "__main__":
             print('epsilon:', ep)
             print('sigma:  ', sigma)
             print('sigma0: ', sigma0_u) 
-
-            # Compute test power of deep kernel based MMD
-            def mmd(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
-                S = np.concatenate((X, Y), axis=0)
-                S = MatConvert(S, device, dtype)
-                Fea = model_u(S)
-                len_s = X.shape[0]
-                return MMDu(Fea, len_s, S, sigma, sigma0_u, ep)
+            # Compute test power of deep kernel based MMD 
             H_u = np.zeros(N) # 1 stands for correct, 0 stands for wrong
             print("Under this trained kernel, we run N = %d times: "%N)
             for k in range(N):
                 X, Y = sample_blobs_Q(n, sigma_mx_2)
                 Z, _ = sample_blobs_Q(m, sigma_mx_2)
                 # Run MMD on generated data
-                mmd_XZ = mmd(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
-                mmd_YZ = mmd(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
+                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
+                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
                 # Gather results
                 H_u[k] = mmd_XZ<mmd_YZ    
             # Print probability of success
-            print("n =",str(n),"--- P(success|Z~X): ", H_u.sum()/N_f)
+            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", H_u.sum()/N_f)
             Results[0, kk] = H_u.sum() / N_f
-
+            #raise KeyboardInterrupt
             for k in range(N):
                 X, Y = sample_blobs_Q(n, sigma_mx_2)
                 _, Z = sample_blobs_Q(m, sigma_mx_2)
                 # Run MMD on generated data
-                mmd_XZ = mmd(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
-                mmd_YZ = mmd(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
+                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
+                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
                 # Gather results
-                H_u[k] = mmd_XZ>mmd_YZ
+                H_u[k] = mmd_XZ[0]>mmd_YZ[0]
               # Print probability of success
-            print("n =",str(n),"--- P(success|Z~Y): ", H_u.sum()/N_f)
+            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_u.sum()/N_f)
             Results[1, kk] = H_u.sum() / N_f
-        np.save('./LFI_'+str(n),Results)           
-    LFI_plot(n_list=n_list)
+        np.save('./LFI_'+str(n),Results) 
+    ####Plotting
+    ####Stores the parameters run on     
+    LFI_plot(n_list, title=title)
