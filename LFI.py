@@ -92,34 +92,22 @@ def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, sigma0_u, ep)
 
-
-if __name__ == "__main__":
-    # Setup seeds
+def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=5e-4, K=15, N=200, N_epoch=1000):  
+  # Setup seeds
     torch.backends.cudnn.deterministic = True
     is_cuda = True
-    # Setup for all experiments
     dtype = torch.float
     device = torch.device("cuda:0")
-    title=sys.argv[1]
-    N_per = 100 # permutation times
-    alpha = 0.05 # test threshold
-    n_list = 10*np.array(range(1,11)) # number of samples in per mode
-    m_list = 5*np.array(range(1,11))
     x_in = 2 # number of neurons in the input layer, i.e., dimension of data
     H = 50 # number of neurons in the hidden layer
     x_out = 50 # number of neurons in the output layer
-    learning_rate = 0.0005 # learning rate for MMD-D on Blob
-    N_epoch = 1000 # number of training epochs
-    K = 15 # number of trials
-    N = 200 # # number of test sets
     N_f = float(N) # number of test sets (float)
     parameters={'n_list':n_list,
                 'm_list':m_list,
                 'N_epoch':N_epoch,
                 'N_per':N_per,
                 'K':K,
-                'N':N,
-    }
+                'N':N,}
     with open('./PARAMETERS_'+title, 'wb') as pickle_file:
         pickle.dump(parameters, pickle_file)
     # Generate variance and co-variance matrix of Q
@@ -141,7 +129,7 @@ if __name__ == "__main__":
         n=n_list[i]
         m=m_list[i]
         print("##### Starting n=%d and m=%d #####"%(n, m))
-        print("##### K=%d big loops, N=%d small loops. #####"%(K,N))
+        print("##### K=%d big trials, N=%d tests per trial for inference of Z. #####"%(K,N))
         Results = np.zeros([2, K])
         J_star_u = np.zeros([K, N_epoch])
         ep_OPT = np.zeros([K])
@@ -149,7 +137,10 @@ if __name__ == "__main__":
         s0_OPT = np.zeros([K])
         for kk in range(K):
             # Generate Blob-D
+            
             s1,s2 = sample_blobs_Q(n, sigma_mx_2)
+
+
             # REPLACE above line with
             # s1,s2 = sample_blobs(N1)
             # for validating type-I error (s1 ans s2 are from the same distribution)
@@ -168,8 +159,7 @@ if __name__ == "__main__":
             sigma0OPT = MatConvert(np.sqrt(np.random.rand(1) * 0.002), device, dtype)
             sigma0OPT.requires_grad = True
             # Setup optimizer for training deep kernel
-            optimizer_u = torch.optim.Adam(list(model_u.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT], lr=learning_rate) #
-
+            optimizer_u = torch.optim.Adam(list(model_u.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT], lr=learning_rate)
             # Train deep kernel to maximize test power
             for t in range(N_epoch):
                 # Compute epsilon, sigma and sigma_0
@@ -230,6 +220,11 @@ if __name__ == "__main__":
             print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_u.sum()/N_f)
             Results[1, kk] = H_u.sum() / N_f
         np.save('./LFI_'+str(n),Results) 
-    ####Plotting
-    ####Stores the parameters run on     
+    ####Plotting    
     LFI_plot(n_list, title=title)
+
+if __name__ == "__main__":
+    n_list = 10*np.array(range(1,11)) # number of samples in per mode
+    m_list = 5*np.array(range(1,11))
+    title=sys.argv[1]
+    train(n_list, m_list, title=title)
