@@ -141,11 +141,9 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
         s0_OPT = np.zeros([K])
         for kk in range(K):
             # Generate Blob-D
-            s1,s2 = sample_blobs_Q(n, sigma_mx_2)
-            S = np.concatenate((s1, s2), axis=0)
+            X, Y = sample_blobs_Q(n, sigma_mx_2)
+            S = np.concatenate((X, Y), axis=0)
             S = MatConvert(S, device, dtype)
-            # Repeat experiments K times (K = 1) and report average test power (rejection rate)
-            # Initialize parameters
             model_u = ModelLatentF(x_in, H, x_out).cuda()
             epsilonOPT = MatConvert(np.random.rand(1) * (10 ** (-10)), device, dtype)
             epsilonOPT.requires_grad = True
@@ -187,9 +185,9 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
  
             #testing how model behaves on untrained data
             print('TEST OUR MODEL ON NEW SET OF DATA:')            
-            X, Y = sample_blobs_Q(n, sigma_mx_2)
+            X1, Y1 = sample_blobs_Q(n, sigma_mx_2)
             with torch.torch.no_grad():
-                S = np.concatenate((X, Y), axis=0)
+                S = np.concatenate((X1, Y1), axis=0)
                 S = MatConvert(S, device, dtype)
                 modelu_output = model_u(S)
                 TEMP = MMDu(modelu_output, n, S, sigma, sigma0_u, ep)
@@ -210,7 +208,7 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
             H_u = np.zeros(N) # 1 stands for correct, 0 stands for wrong
             print("Under this trained kernel, we run N = %d times: "%N)
             for k in range(N):
-                X, Y = sample_blobs_Q(n, sigma_mx_2)
+                #X, Y = sample_blobs_Q(n, sigma_mx_2)
                 Z, _ = sample_blobs_Q(m, sigma_mx_2)
                 # Run MMD on generated data
                 mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)

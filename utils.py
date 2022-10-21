@@ -1,8 +1,6 @@
 import numpy as np
 import torch
 import torch.utils.data
-import freqopttest.data as data
-import freqopttest.tst as tst
 
 is_cuda = True
 
@@ -336,67 +334,3 @@ def TST_C2ST(S,N1,N_per,alpha,model_C2ST, w_C2ST, b_C2ST,device,dtype):
         h = 1
     return h, threshold, STAT
 
-def TST_LCE(S,N1,N_per,alpha,model_C2ST, w_C2ST, b_C2ST,device,dtype):
-    """run C2ST-L."""
-    np.random.seed(seed=1102)
-    torch.manual_seed(1102)
-    torch.cuda.manual_seed(1102)
-    N = S.shape[0]
-    f = torch.nn.Softmax()
-    output = f(model_C2ST(S).mm(w_C2ST) + b_C2ST)
-    STAT = abs(output[:N1,0].type(torch.FloatTensor).mean() - output[N1:,0].type(torch.FloatTensor).mean())
-    STAT_vector = np.zeros(N_per)
-    for r in range(N_per):
-        ind = np.random.choice(N, N, replace=False)
-        # divide into new X, Y
-        ind_X = ind[:N1]
-        ind_Y = ind[N1:]
-        # print(indx)
-        STAT_vector[r] = abs(output[ind_X,0].type(torch.FloatTensor).mean() - output[ind_Y,0].type(torch.FloatTensor).mean())
-    S_vector = np.sort(STAT_vector)
-    threshold = S_vector[np.int(np.ceil(N_per * (1 - alpha)))]
-    h = 0
-    if STAT.item() > threshold:
-        h = 1
-    return h, threshold, STAT
-
-def TST_ME(Fea, N1, alpha, is_train, test_locs, gwidth, J = 1, seed = 15):
-    """run ME test."""
-    Fea = get_item(Fea,is_cuda)
-    tst_data = data.TSTData(Fea[0:N1,:], Fea[N1:,:])
-    h = 0
-    if is_train:
-        op = {
-            'n_test_locs': J,  # number of test locations to optimize
-            'max_iter': 300,  # maximum number of gradient ascent iterations
-            'locs_step_size': 1.0,  # step size for the test locations (features)
-            'gwidth_step_size': 0.1,  # step size for the Gaussian width
-            'tol_fun': 1e-4,  # stop if the objective does not increase more than this.
-            'seed': seed + 5,  # random seed
-        }
-        test_locs, gwidth, info = tst.MeanEmbeddingTest.optimize_locs_width(tst_data, alpha, **op)
-        return test_locs, gwidth
-    else:
-        met_opt = tst.MeanEmbeddingTest(test_locs, gwidth, alpha)
-        test_result = met_opt.perform_test(tst_data)
-        if test_result['h0_rejected']:
-            h = 1
-        return h
-
-def TST_SCF(Fea, N1, alpha, is_train, test_freqs, gwidth, J = 1, seed = 15):
-    """run ME test."""
-    Fea = get_item(Fea,is_cuda)
-    tst_data = data.TSTData(Fea[0:N1,:], Fea[N1:,:])
-    h = 0
-    if is_train:
-        op = {'n_test_freqs': J, 'seed': seed, 'max_iter': 300,
-              'batch_proportion': 1.0, 'freqs_step_size': 0.1,
-              'gwidth_step_size': 0.01, 'tol_fun': 1e-4}
-        test_freqs, gwidth, info = tst.SmoothCFTest.optimize_freqs_width(tst_data, alpha, **op)
-        return test_freqs, gwidth
-    else:
-        scf_opt = tst.SmoothCFTest(test_freqs, gwidth, alpha=alpha)
-        test_result = scf_opt.perform_test(tst_data)
-        if test_result['h0_rejected']:
-            h = 1
-        return h
