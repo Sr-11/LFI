@@ -70,7 +70,10 @@ def LFI_plot(n_list, title="LFI_with_Blob" ,path='./', with_error_bar=True):
     else:
         plt.plot(n_list, ZX_success, label='Z~X')
         plt.plot(n_list, ZY_success, label='Z~Y')
-    plt.xlabel("m=n", fontsize=20)
+    print('Success rates:')
+    print(ZX_success)
+    print(ZY_success)
+    plt.xlabel("n samples", fontsize=20)
     plt.ylabel("P(success)", fontsize=20)
     plt.legend(fontsize=20)
     plt.savefig(title+'.png')
@@ -92,7 +95,7 @@ def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, sigma0_u, ep)
 
-def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=5e-4, K=15, N=200, N_epoch=1000):  
+def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=5e-4, K=15, N=200, N_epoch=1000, print_every=100):  
   # Setup seeds
     torch.backends.cudnn.deterministic = True
     is_cuda = True
@@ -129,6 +132,7 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
         n=n_list[i]
         m=m_list[i]
         print("##### Starting n=%d and m=%d #####"%(n, m))
+        print("##### Starting N_epoch=%d epochs #####"%(N_epoch))
         print("##### K=%d big trials, N=%d tests per trial for inference of Z. #####"%(K,N))
         Results = np.zeros([2, K])
         J_star_u = np.zeros([K, N_epoch])
@@ -137,21 +141,12 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
         s0_OPT = np.zeros([K])
         for kk in range(K):
             # Generate Blob-D
-            
             s1,s2 = sample_blobs_Q(n, sigma_mx_2)
-
-
-            # REPLACE above line with
-            # s1,s2 = sample_blobs(N1)
-            # for validating type-I error (s1 ans s2 are from the same distribution)
             S = np.concatenate((s1, s2), axis=0)
             S = MatConvert(S, device, dtype)
             # Repeat experiments K times (K = 1) and report average test power (rejection rate)
             # Initialize parameters
-            if is_cuda:
-                model_u = ModelLatentF(x_in, H, x_out).cuda()
-            else:
-                model_u = ModelLatentF(x_in, H, x_out)
+            model_u = ModelLatentF(x_in, H, x_out).cuda()
             epsilonOPT = MatConvert(np.random.rand(1) * (10 ** (-10)), device, dtype)
             epsilonOPT.requires_grad = True
             sigmaOPT = MatConvert(np.sqrt(np.random.rand(1) * 0.3), device, dtype)
@@ -180,20 +175,38 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
                 # Update weights using gradient descent
                 optimizer_u.step()
                 # Print MMD, std of MMD and J
-                if t % 100 == 0:
-                    print("mmd_value: ", -1 * mmd_value_temp.item(), 
-                          "mmd_std: ", mmd_std_temp.item(), 
-                          "Statistic J: ", -1 * STAT_u.item())
-            h_u, threshold_u, mmd_value_u = TST_MMD_u(model_u(S), N_per, n, S, sigma, sigma0_u, alpha, device,
-                                                      dtype, ep)
+                if t % print_every == 0:
+                    print('Epoch:', t)
+                    print("mmd_value: ", -1 * mmd_value_temp.item()) 
+                          #"mmd_std: ", mmd_std_temp.item(), 
+                    print("Statistic J: ", -1 * STAT_u.item())
+            h_u, threshold_u, mmd_value_u = TST_MMD_u(model_u(S), N_per, n, S, sigma, sigma0_u, alpha, device, dtype, ep)
             ep_OPT[kk] = ep.item()
             s_OPT[kk] = sigma.item()
             s0_OPT[kk] = sigma0_u.item()
+ 
+            #testing how model behaves on untrained data
+            print('TEST OUR MODEL ON NEW SET OF DATA:')            
+            X, Y = sample_blobs_Q(n, sigma_mx_2)
+            with torch.torch.no_grad():
+                S = np.concatenate((X, Y), axis=0)
+                S = MatConvert(S, device, dtype)
+                modelu_output = model_u(S)
+                TEMP = MMDu(modelu_output, n, S, sigma, sigma0_u, ep)
+                mmd_value_temp = -1 * TEMP[0]
+                mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8))
+                STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
+                J_star_u[kk, t] = STAT_u.item()
+                if True:
+                    print("TEST mmd_value: ", -1 * mmd_value_temp.item()) 
+                          #"TEST mmd_std: ", mmd_std_temp.item(), 
+                    print("TEST Statistic J: ", -1 * STAT_u.item())
+            # Compute test power of deep kernel based MMD 
+            
             #print(ep, epsilonOPT)
             print('epsilon:', ep)
             print('sigma:  ', sigma)
             print('sigma0: ', sigma0_u) 
-            # Compute test power of deep kernel based MMD 
             H_u = np.zeros(N) # 1 stands for correct, 0 stands for wrong
             print("Under this trained kernel, we run N = %d times: "%N)
             for k in range(N):
@@ -224,7 +237,7 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
     LFI_plot(n_list, title=title)
 
 if __name__ == "__main__":
-    n_list = 10*np.array(range(1,11)) # number of samples in per mode
-    m_list = 5*np.array(range(1,11))
+    n_list = 10*np.array(range(8,11)) # number of samples in per mode
+    m_list = 5*np.array(range(8,11))
     title=sys.argv[1]
     train(n_list, m_list, title=title)
