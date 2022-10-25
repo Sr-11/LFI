@@ -98,7 +98,6 @@ def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
 def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=5e-4, K=15, N=200, N_epoch=1000, print_every=100):  
   # Setup seeds
     torch.backends.cudnn.deterministic = True
-    is_cuda = True
     dtype = torch.float
     device = torch.device("cuda:0")
     x_in = 2 # number of neurons in the input layer, i.e., dimension of data
