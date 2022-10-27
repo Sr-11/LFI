@@ -51,7 +51,7 @@ class ModelLatentF(torch.nn.Module):
         fealant = self.latent(input)
         return fealant
 
-def LFI_plot(n_list, title="LFI_with_Blob" ,path='./', with_error_bar=True):
+def LFI_plot(n_list, title="LFI_with_Blob" ,path='./data/', with_error_bar=True):
     Results_list = []
     fig = plt.figure(figsize=(10, 8))
     ZX_success = np.zeros(len(n_list))
@@ -95,7 +95,7 @@ def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, sigma0_u, ep)
 
-def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=5e-4, K=15, N=200, N_epoch=1000, print_every=100):  
+def train(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=101, print_every=100, batch_size=50, test_on_new_sample=False, SGD=True):  
   # Setup seeds
     torch.backends.cudnn.deterministic = True
     dtype = torch.float
@@ -110,7 +110,7 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
                 'N_per':N_per,
                 'K':K,
                 'N':N,}
-    with open('./PARAMETERS_'+title, 'wb') as pickle_file:
+    with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
         pickle.dump(parameters, pickle_file)
     # Generate variance and co-variance matrix of Q
     sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
@@ -140,9 +140,11 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
         s0_OPT = np.zeros([K])
         for kk in range(K):
             # Generate Blob-D
+            if not SGD:
+                batch_size=n
             X, Y = sample_blobs_Q(n, sigma_mx_2)
-            S = np.concatenate((X, Y), axis=0)
-            S = MatConvert(S, device, dtype)
+            total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) for i in range(n//batch_size)]
+            total_S=[MatConvert(np.concatenate((X, Y), axis=0), device, dtype) for (X, Y) in total_S]
             model_u = ModelLatentF(x_in, H, x_out).cuda()
             epsilonOPT = MatConvert(np.random.rand(1) * (10 ** (-10)), device, dtype)
             epsilonOPT.requires_grad = True
@@ -155,29 +157,29 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
             # Train deep kernel to maximize test power
             for t in range(N_epoch):
                 # Compute epsilon, sigma and sigma_0
-                ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
-                sigma = sigmaOPT ** 2
-                sigma0_u = sigma0OPT ** 2
-                # Compute output of the deep network
-                modelu_output = model_u(S)
-                # Compute J (STAT_u)
-                TEMP = MMDu(modelu_output, n, S, sigma, sigma0_u, ep)
-                mmd_value_temp = -1 * TEMP[0]
-                mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8))
-                STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
-                J_star_u[kk, t] = STAT_u.item()
-                # Initialize optimizer and Compute gradient
-                optimizer_u.zero_grad()
-                STAT_u.backward(retain_graph=True)
-                # Update weights using gradient descent
-                optimizer_u.step()
+                for S in total_S:
+                    ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
+                    sigma = sigmaOPT ** 2
+                    sigma0_u = sigma0OPT ** 2
+                    # Compute output of the deep network
+                    modelu_output = model_u(S)
+                    # Compute J (STAT_u)
+                    TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep)
+                    mmd_value_temp = -1 * TEMP[0]
+                    mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8))
+                    STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
+                    J_star_u[kk, t] = STAT_u.item()
+                    # Initialize optimizer and Compute gradient
+                    optimizer_u.zero_grad()
+                    STAT_u.backward(retain_graph=True)
+                    # Update weights using gradient descent
+                    optimizer_u.step()
                 # Print MMD, std of MMD and J
                 if t % print_every == 0:
                     print('Epoch:', t)
                     print("mmd_value: ", -1 * mmd_value_temp.item()) 
                           #"mmd_std: ", mmd_std_temp.item(), 
                     print("Statistic J: ", -1 * STAT_u.item())
-            h_u, threshold_u, mmd_value_u = TST_MMD_u(model_u(S), N_per, n, S, sigma, sigma0_u, alpha, device, dtype, ep)
             ep_OPT[kk] = ep.item()
             s_OPT[kk] = sigma.item()
             s0_OPT[kk] = sigma0_u.item()
@@ -186,55 +188,51 @@ def train(n_list, m_list, N_per=100, title='Default', alpha=0.05, learning_rate=
             print('TEST OUR MODEL ON NEW SET OF DATA:')            
             X1, Y1 = sample_blobs_Q(n, sigma_mx_2)
             with torch.torch.no_grad():
-                S = np.concatenate((X1, Y1), axis=0)
-                S = MatConvert(S, device, dtype)
-                modelu_output = model_u(S)
-                TEMP = MMDu(modelu_output, n, S, sigma, sigma0_u, ep)
+                S1 = np.concatenate((X1, Y1), axis=0)
+                S1 = MatConvert(S1, device, dtype)
+                modelu_output = model_u(S1)
+                TEMP = MMDu(modelu_output, n, S1, sigma, sigma0_u, ep)
                 mmd_value_temp = -1 * TEMP[0]
                 mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8))
                 STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
-                J_star_u[kk, t] = STAT_u.item()
                 if True:
                     print("TEST mmd_value: ", -1 * mmd_value_temp.item()) 
-                          #"TEST mmd_std: ", mmd_std_temp.item(), 
                     print("TEST Statistic J: ", -1 * STAT_u.item())
-            # Compute test power of deep kernel based MMD 
             
-            #print(ep, epsilonOPT)
-            print('epsilon:', ep)
-            print('sigma:  ', sigma)
-            print('sigma0: ', sigma0_u) 
-            H_u = np.zeros(N) # 1 stands for correct, 0 stands for wrong
-            print("Under this trained kernel, we run N = %d times: "%N)
+            #print('epsilon:', ep)
+            #print('sigma:  ', sigma)
+            #print('sigma0: ', sigma0_u) 
+            H_u = np.zeros(N) 
+            print("Under this trained kernel, we run N = %d times LFI: "%N)
             for k in range(N):
-                #X, Y = sample_blobs_Q(n, sigma_mx_2)
+                if test_on_new_sample:
+                    X, Y = sample_blobs_Q(n, sigma_mx_2)
                 Z, _ = sample_blobs_Q(m, sigma_mx_2)
                 # Run MMD on generated data
-                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
-                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
-                # Gather results
+                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)[0]
+                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)[0]
                 H_u[k] = mmd_XZ<mmd_YZ    
-            # Print probability of success
             print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", H_u.sum()/N_f)
             Results[0, kk] = H_u.sum() / N_f
-            #raise KeyboardInterrupt
+
             for k in range(N):
-                X, Y = sample_blobs_Q(n, sigma_mx_2)
+                if test_on_new_sample:
+                    X, Y = sample_blobs_Q(n, sigma_mx_2)
                 _, Z = sample_blobs_Q(m, sigma_mx_2)
-                # Run MMD on generated data
-                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
-                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)
-                # Gather results
-                H_u[k] = mmd_XZ[0]>mmd_YZ[0]
-              # Print probability of success
+                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)[0]
+                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)[0]
+                H_u[k] = mmd_XZ>mmd_YZ
             print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_u.sum()/N_f)
             Results[1, kk] = H_u.sum() / N_f
-        np.save('./LFI_'+str(n),Results) 
+        np.save('./data/LFI_'+str(n),Results) 
     ####Plotting    
     LFI_plot(n_list, title=title)
 
 if __name__ == "__main__":
-    n_list = 10*np.array(range(8,11)) # number of samples in per mode
-    m_list = 5*np.array(range(8,11))
-    title=sys.argv[1]
+    n_list = 100*np.array(range(12,13)) # number of samples in per mode
+    m_list = 50*np.array(range(4,5))
+    try:
+        title=sys.argv[1]
+    except:
+        title='untitled_run'
     train(n_list, m_list, title=title)
