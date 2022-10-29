@@ -4,31 +4,8 @@ import sys
 from sklearn.utils import check_random_state
 from utils import MatConvert, MMDu, TST_MMD_u, mmd2_permutations, MMD_General
 from matplotlib import pyplot as plt
-from tqdm import trange
 import pickle
-def sample_blobs_Q(N1, sigma_mx_2, rows=3, cols=3, rs=None):
-    """Generate Blob-D for testing type-II error (or test power)."""
-    """ Return: X,Y   """
-    """ X ~ N(0, 0.03) + randint """
-    """ Y ~ N(0, sigma_mx_2(9*2*2)) + {0,1,2}^2 """
-    rs = check_random_state(rs)
-    mu = np.zeros(2)
-    sigma = np.eye(2) * 0.03
-    X = rs.multivariate_normal(mu, sigma, size=N1)
-    Y = rs.multivariate_normal(mu, np.eye(2), size=N1)
-    # assign to blobs
-    X[:, 0] += rs.randint(rows, size=N1)
-    X[:, 1] += rs.randint(cols, size=N1)
-    Y_row = rs.randint(rows, size=N1)
-    Y_col = rs.randint(cols, size=N1)
-    locs = [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2],[2,0],[2,1],[2,2]]
-    for i in range(9):
-        corr_sigma = sigma_mx_2[i]
-        L = np.linalg.cholesky(corr_sigma) # corr_sigma=L*L^dagger, L is lower-triangular.
-        ind = np.expand_dims((Y_row == locs[i][0]) & (Y_col == locs[i][1]), 1)
-        ind2 = np.concatenate((ind, ind), 1)
-        Y = np.where(ind2, np.matmul(Y,L) + locs[i], Y)
-    return X, Y
+from Data_gen import *
 
 class ModelLatentF(torch.nn.Module):
     """Latent space for both domains."""
@@ -39,11 +16,11 @@ class ModelLatentF(torch.nn.Module):
         self.restored = False
         self.latent = torch.nn.Sequential(
             torch.nn.Linear(x_in, H, bias=True),
-            torch.nn.Softplus(),
+            torch.nn.ReLU(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.Softplus(),
+            torch.nn.ReLU(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.Softplus(),
+            torch.nn.ReLU(),
             torch.nn.Linear(H, x_out, bias=True),
         )
     def forward(self, input):
@@ -95,7 +72,7 @@ def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, sigma0_u, ep)
 
-def train(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=101, print_every=100, batch_size=50, test_on_new_sample=False, SGD=True):  
+def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=True):  
   # Setup seeds
     torch.backends.cudnn.deterministic = True
     dtype = torch.float
@@ -142,6 +119,8 @@ def train(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, 
             # Generate Blob-D
             if not SGD:
                 batch_size=n
+            else:
+                n=batch_size+(n//batch_size)*batch_size #round up
             X, Y = sample_blobs_Q(n, sigma_mx_2)
             total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) for i in range(n//batch_size)]
             total_S=[MatConvert(np.concatenate((X, Y), axis=0), device, dtype) for (X, Y) in total_S]
@@ -228,11 +207,17 @@ def train(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, 
     ####Plotting    
     LFI_plot(n_list, title=title)
 
+def train_O(n_list, m_list):
+    #Trains optimized Gaussian Kernel Length
+    #implemented in DK-TST
+    pass
+
+
 if __name__ == "__main__":
-    n_list = 100*np.array(range(12,13)) # number of samples in per mode
-    m_list = 50*np.array(range(4,5))
+    n_list = 50*np.array(range(12,13)) # number of samples in per mode
+    m_list = 10*np.array(range(4,5))
     try:
         title=sys.argv[1]
     except:
         title='untitled_run'
-    train(n_list, m_list, title=title)
+    train_d(n_list, m_list, title=title)
