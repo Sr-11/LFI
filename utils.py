@@ -87,9 +87,33 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
     varEst = 4*(V1 - V2**2)
     if  varEst == 0.0:
         print('error!!'+str(V1))
+        
     return mmd2, varEst, Kxyxy
 
 def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True, is_var_computed=True, use_1sample_U=True):
+    """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
+    X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
+    Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)
+    X_org = Fea_org[0:len_s, :] # fetch the original sample 1
+    Y_org = Fea_org[len_s:, :] # fetch the original sample 2
+    L = 1 # generalized Gaussian (if L>1)
+    Dxx = Pdist2(X, X)
+    Dyy = Pdist2(Y, Y)
+    Dxy = Pdist2(X, Y)
+    Dxx_org = Pdist2(X_org, X_org)
+    Dyy_org = Pdist2(Y_org, Y_org)
+    Dxy_org = Pdist2(X_org, Y_org)
+    if is_smooth:
+        Kx = (1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma)
+        Ky = (1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma)
+        Kxy = (1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma)
+    else:
+        Kx = torch.exp(-Dxx / sigma0)
+        Ky = torch.exp(-Dyy / sigma0)
+        Kxy = torch.exp(-Dxy / sigma0)
+    return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
+
+def MMD_LFI_std(Fea, batch_n, batch_m, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True, is_var_computed=True, use_1sample_U=True):
     """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
     X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)

@@ -57,7 +57,7 @@ def LFI_plot(n_list, title="LFI_with_Blob" ,path='./data/', with_error_bar=True)
     plt.close()
     return fig
 
-def mmd(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
+def mmd(X, Y, Z, model_u, sigma, sigma0_u, device, dtype, ep):
     S = np.concatenate((X, Y), axis=0)
     S = MatConvert(S, device, dtype)
     Fea = model_u(S)
@@ -72,7 +72,7 @@ def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, sigma0_u, ep)
 
-def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=True):  
+def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=True, LfI=False):  
   # Setup seeds
     torch.backends.cudnn.deterministic = True
     dtype = torch.float
@@ -116,14 +116,18 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
         s_OPT = np.zeros([K])
         s0_OPT = np.zeros([K])
         for kk in range(K):
-            # Generate Blob-D
             if not SGD:
                 batch_size=n
             else:
-                n=batch_size+(n//batch_size)*batch_size #round up
+                batches=1+n//batch_size
+                n=batches*batch_size #round up
+                m=(m//batches)*batches
+                batch_m=m//batches
             X, Y = sample_blobs_Q(n, sigma_mx_2)
-            total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) for i in range(n//batch_size)]
+            Z, _ = sample_blobs_Q(m, sigma_mx_2)
+            total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) for i in range(batches)]
             total_S=[MatConvert(np.concatenate((X, Y), axis=0), device, dtype) for (X, Y) in total_S]
+            total_Z=[Z[i*batch_m:i*batch_m+batch_m] for i in range(batches)]
             model_u = ModelLatentF(x_in, H, x_out).cuda()
             epsilonOPT = MatConvert(np.random.rand(1) * (10 ** (-10)), device, dtype)
             epsilonOPT.requires_grad = True
@@ -136,22 +140,30 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
             # Train deep kernel to maximize test power
             for t in range(N_epoch):
                 # Compute epsilon, sigma and sigma_0
-                for S in total_S:
+                for ind in range(batches):
+                    x, y=total_S[ind] #minibatches
+                    z=total_Z[ind]
                     ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
                     sigma = sigmaOPT ** 2
                     sigma0_u = sigma0OPT ** 2
-                    # Compute output of the deep network
-                    modelu_output = model_u(S)
-                    # Compute J (STAT_u)
-                    TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep)
-                    mmd_value_temp = -1 * TEMP[0]
-                    mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8))
-                    STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
+                    if not LfI:
+                        S=MatConvert(np.concatenate((x, y), axis=0), device, dtype)
+                        modelu_output = model_u(S)
+                        TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep)
+                        mmd_value_temp = -1 * TEMP[0]
+                        mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8)) #this is std
+                        STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
+                    
+                    else:
+                        S=MatConvert(np.concatenate(([x, y, z]), axis=0), device, dtype)
+                        mmd_value_temp = torch.square(mmdG(x, z, model_u, batch_size, batch_m, sigma, sigma0_u, device, dtype, ep)-mmdG(y, z, model_u, batch_size, batch_m, sigma, sigma0_u, device, dtype, ep))
+                        mmd_std_temp=MMD_LFI_std()
+                        #TODO: compute std
+
+                        STAT_u = torch.sub(mmd_value_temp, mmd_std_temp, alpha=1.0)
                     J_star_u[kk, t] = STAT_u.item()
-                    # Initialize optimizer and Compute gradient
                     optimizer_u.zero_grad()
                     STAT_u.backward(retain_graph=True)
-                    # Update weights using gradient descent
                     optimizer_u.step()
                 # Print MMD, std of MMD and J
                 if t % print_every == 0:
