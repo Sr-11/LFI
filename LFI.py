@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import sys
 from sklearn.utils import check_random_state
-from utils import MatConvert, MMDu, TST_MMD_u, mmd2_permutations, MMD_General
+from utils import MatConvert, MMDu, TST_MMD_u, mmd2_permutations, MMD_General, MMD_LFI_std
 from matplotlib import pyplot as plt
 import pickle
 from Data_gen import *
@@ -156,11 +156,14 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                     
                     else:
                         S=MatConvert(np.concatenate(([x, y, z]), axis=0), device, dtype)
-                        mmd_value_temp = torch.square(mmdG(x, z, model_u, batch_size, batch_m, sigma, sigma0_u, device, dtype, ep)-mmdG(y, z, model_u, batch_size, batch_m, sigma, sigma0_u, device, dtype, ep))
-                        mmd_std_temp=MMD_LFI_std()
+                        Fea=model_u(S)
+                        #mmd_value_temp = torch.square(mmdG(x, z, model_u, batch_size, batch_m, sigma, sigma0_u, device, dtype, ep)-mmdG(y, z, model_u, batch_size, batch_m, sigma, sigma0_u, device, dtype, ep))
+                        #The above is correct form but very slow.
+                        lfi_temp=MMD_LFI_std(Fea, S, batch_size, batch_m,  sigma, sigma0_u, ep)
                         #TODO: compute std
-
-                        STAT_u = torch.sub(mmd_value_temp, mmd_std_temp, alpha=1.0)
+                        mmd_squared_temp=torch.square(lfi_temp[0])
+                        mmd_var_temp=torch.nn.ReLU(lfi_temp[1])
+                        STAT_u = torch.sub(mmd_squared_temp, mmd_var_temp, alpha=1.0)
                     J_star_u[kk, t] = STAT_u.item()
                     optimizer_u.zero_grad()
                     STAT_u.backward(retain_graph=True)
