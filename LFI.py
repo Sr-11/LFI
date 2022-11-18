@@ -57,13 +57,6 @@ def LFI_plot(n_list, title="LFI_with_Blob" ,path='./data/', with_error_bar=True)
     plt.close()
     return fig
 
-def mmd(X, Y, Z, model_u, sigma, sigma0_u, device, dtype, ep):
-    S = np.concatenate((X, Y), axis=0)
-    S = MatConvert(S, device, dtype)
-    Fea = model_u(S)
-    len_s = X.shape[0]
-    return MMDu(Fea, len_s, S, sigma, sigma0_u, ep)
-
 def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
     S = np.concatenate((X, Y), axis=0)
     S = MatConvert(S, device, dtype)
@@ -153,7 +146,6 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                         mmd_value_temp = -1 * TEMP[0]
                         mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8)) #this is std
                         STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
-                    
                     else:
                         S=MatConvert(np.concatenate(([x, y, z]), axis=0), device, dtype)
                         Fea=model_u(S)

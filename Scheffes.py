@@ -62,4 +62,5 @@ if __name__ == "__main__":
     n=100
     sigma_mx_2=np.ones((3,3))
     X, Y=sample_blobs_Q(n, sigma_mx_2)
-    train(model, X, Y, )
+    model=train(model, X, Y, criterion)
+    

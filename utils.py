@@ -115,6 +115,12 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=
 
 def MMD_LFI_std(Fea, Fea_org, batch_n, batch_m, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True, is_var_computed=True, use_1sample_U=True):
     """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
+    X=Fea[0:batch_n, :]
+    Y=Fea[batch_n: 2*batch_n, :]
+    Z=Fea[2*batch_n:, :]
+    X_org=Fea_org[0:batch_n, :]
+    Y_org=Fea_org[batch_n: 2*batch_n, :]
+    Z_org=Fea_org[2*batch_n:, :]
     pass
 
 def MMD_General(Fea, n, m, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True):
