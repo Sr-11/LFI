@@ -169,7 +169,7 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
             ep_OPT[kk] = ep.item()
             s_OPT[kk] = sigma.item()
             s0_OPT[kk] = sigma0_u.item()
- 
+            '''
             #testing how model behaves on untrained data
             print('TEST OUR MODEL ON NEW SET OF DATA:')            
             X1, Y1 = sample_blobs_Q(n, sigma_mx_2)
@@ -184,10 +184,10 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                 if True:
                     print("TEST mmd_value: ", -1 * mmd_value_temp.item()) 
                     print("TEST Statistic J: ", -1 * STAT_u.item())
-            
             #print('epsilon:', ep)
             #print('sigma:  ', sigma)
             #print('sigma0: ', sigma0_u) 
+            '''
             H_u = np.zeros(N) 
             print("Under this trained kernel, we run N = %d times LFI: "%N)
             for k in range(N):
@@ -218,7 +218,6 @@ def train_O(n_list, m_list):
     #Trains optimized Gaussian Kernel Length
     #implemented in DK-TST
     pass
-
 
 if __name__ == "__main__":
     n_list = 50*np.array(range(12,13)) # number of samples in per mode
