@@ -36,7 +36,7 @@ class Classifier(torch.nn.Module):
 
 
 
-def train(model, X, Y, criterion, batch_size=64, lr=0.001, epochs=1000):
+def train(model, X, Y, criterion, batch_size=64, lr=0.0002, epochs=10000):
     """Label the items first
         items in X have label 0, items in Y have label 1
         then train the model with sgd
@@ -60,12 +60,11 @@ def train(model, X, Y, criterion, batch_size=64, lr=0.001, epochs=1000):
             loss.backward()
             optimizer.step()
         if epoch % 100 == 0:
+            clear_output(True)
             loss_records.append(loss.detach().cpu().numpy())
             print("epoch: ", epoch)
             print("loss: ", loss)
             print("accuracy on X: ", inference(model, len(X), X))
-            clear_output()
-            os.system("clear")
             
     plt.plot(range(len(loss_records)),loss_records)
     plt.show()
@@ -90,6 +89,10 @@ def inference(model,size_m, Z, target_label=0):
         return success/size_m
 
 if __name__ == "__main__":
+    try:
+        title=sys.argv[1]
+    except:
+        title='untitled_run'
     ##### Data #####
     sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
     sigma_mx_2 = np.zeros([9,2,2])
@@ -105,18 +108,13 @@ if __name__ == "__main__":
             sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
             sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
     device = torch.device("cuda")
-    try:
-        title=sys.argv[1]
-    except:
-        title='untitled_run'
-        
+    n=100
+    m=50
     ##### Train #####
     x_in=2
     H=50
     model=Classifier(x_in, H).to(device)
     criterion = torch.nn.CrossEntropyLoss().cuda()
-    n=100
-    m=50
     X, Y=sample_blobs_Q(n, sigma_mx_2)
     model=train(model, X, Y, criterion)
     
