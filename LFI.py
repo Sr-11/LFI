@@ -1,7 +1,7 @@
+from sklearn.utils import check_random_state
 import numpy as np
 import torch
 import sys
-from sklearn.utils import check_random_state
 from utils import MatConvert, MMDu, TST_MMD_u, mmd2_permutations, MMD_General, MMD_LFI_std
 from matplotlib import pyplot as plt
 import pickle

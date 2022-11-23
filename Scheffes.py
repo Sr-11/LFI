@@ -1,13 +1,15 @@
 #Implements Scheffes test by first building a classifier between X and Y, then classifies Y.
+from sklearn.utils import check_random_state
 import numpy as np
 import torch
 import sys
-from sklearn.utils import check_random_state
 from matplotlib import pyplot as plt
 from tqdm import trange
 import pickle
 from LFI import *
 from Data_gen import *
+from IPython.display import clear_output
+import os 
 
 class Classifier(torch.nn.Module):
     """Latent space for both domains."""
@@ -34,7 +36,7 @@ class Classifier(torch.nn.Module):
 
 
 
-def train(model, X, Y, criterion, batch_size=64, lr=0.001, epochs=10000):
+def train(model, X, Y, criterion, batch_size=64, lr=0.001, epochs=1000):
     """Label the items first
         items in X have label 0, items in Y have label 1
         then train the model with sgd
@@ -42,6 +44,7 @@ def train(model, X, Y, criterion, batch_size=64, lr=0.001, epochs=10000):
         X has shape (N1, 2), Y has shape (N2, 2)
     """
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_records = []
     for epoch in range(epochs):
         for i in range(0, len(X), batch_size):
             optimizer.zero_grad()
@@ -57,9 +60,16 @@ def train(model, X, Y, criterion, batch_size=64, lr=0.001, epochs=10000):
             loss.backward()
             optimizer.step()
         if epoch % 100 == 0:
+            loss_records.append(loss.detach().cpu().numpy())
+            print("epoch: ", epoch)
             print("loss: ", loss)
             print("accuracy on X: ", inference(model, len(X), X))
-    raise Exception("Done training")
+            clear_output()
+            os.system("clear")
+            
+    plt.plot(range(len(loss_records)),loss_records)
+    plt.show()
+    #raise Exception("Done training")
     return model
     
 
@@ -80,6 +90,7 @@ def inference(model,size_m, Z, target_label=0):
         return success/size_m
 
 if __name__ == "__main__":
+    ##### Data #####
     sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
     sigma_mx_2 = np.zeros([9,2,2])
     for i in range(9):
@@ -98,6 +109,8 @@ if __name__ == "__main__":
         title=sys.argv[1]
     except:
         title='untitled_run'
+        
+    ##### Train #####
     x_in=2
     H=50
     model=Classifier(x_in, H).to(device)
@@ -106,6 +119,8 @@ if __name__ == "__main__":
     m=50
     X, Y=sample_blobs_Q(n, sigma_mx_2)
     model=train(model, X, Y, criterion)
+    
+    ##### Test #####
     total=0
     for trial in range(1000):
         Z, _ = sample_blobs_Q(m, sigma_mx_2)
