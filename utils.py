@@ -10,7 +10,6 @@ class ModelLatentF(torch.nn.Module):
         """Init latent features."""
         super(ModelLatentF, self).__init__()
         self.restored = False
-
         self.latent = torch.nn.Sequential(
             torch.nn.Linear(x_in, H, bias=True),
             torch.nn.Softplus(),
@@ -90,56 +89,33 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
 
     return mmd2, varEst, Kxyxy
 
-def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True, is_var_computed=True, use_1sample_U=True):
+def MMDu(Fea, len_s, Fea_org, sigma=0.1, sigma0=0.1, epsilon=10 ** (-10), is_smooth=False, is_var_computed=True, use_1sample_U=True):
     """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
     X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)
-    X_org = Fea_org[0:len_s, :] # fetch the original sample 1
-    Y_org = Fea_org[len_s:, :] # fetch the original sample 2
-    L = 1 # generalized Gaussian (if L>1)
     Dxx = Pdist2(X, X)
     Dyy = Pdist2(Y, Y)
     Dxy = Pdist2(X, Y)
-    Dxx_org = Pdist2(X_org, X_org)
-    Dyy_org = Pdist2(Y_org, Y_org)
-    Dxy_org = Pdist2(X_org, Y_org)
-    if is_smooth:
-        Kx = (1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma)
-        Ky = (1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma)
-        Kxy = (1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma)
-    else:
+    if True:
         Kx = torch.exp(-Dxx / sigma0)
         Ky = torch.exp(-Dyy / sigma0)
         Kxy = torch.exp(-Dxy / sigma0)
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
-def MMD_LFI_std(Fea, Fea_org, batch_n, batch_m, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True, is_var_computed=True, use_1sample_U=True):
+def MMD_LFI_std(Fea, Fea_org, batch_n, batch_m, is_var_computed=True):
     """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
     X=Fea[0:batch_n, :]
     Y=Fea[batch_n: 2*batch_n, :]
     Z=Fea[2*batch_n:, :]
-    X_org=Fea_org[0:batch_n, :]
-    Y_org=Fea_org[batch_n: 2*batch_n, :]
-    Z_org=Fea_org[2*batch_n:, :]
     pass
 
-def MMD_General(Fea, n, m, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True):
+def MMD_General(Fea, n, m, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=False):
     X = Fea[0:n, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[n:, :] # fetch the sample 2 (features of deep networks)
-    X_org = Fea_org[0:n, :] # fetch the original sample 1
-    Y_org = Fea_org[n:, :] # fetch the original sample 2
-    L = 1 # generalized Gaussian (if L>1)
     Dxx = Pdist2(X, X) #shape n by n
     Dyy = Pdist2(Y, Y) #shape m by m
     Dxy = Pdist2(X, Y) #shape n by m
-    Dxx_org = Pdist2(X_org, X_org) 
-    Dyy_org = Pdist2(Y_org, Y_org)
-    Dxy_org = Pdist2(X_org, Y_org)
-    if is_smooth:
-        Kx = (1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma)
-        Ky = (1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma)
-        Kxy = (1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma)
-    else:
+    if True:
         Kx = torch.exp(-Dxx / sigma0)
         Ky = torch.exp(-Dyy / sigma0)
         Kxy = torch.exp(-Dxy / sigma0)

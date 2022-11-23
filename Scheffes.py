@@ -34,14 +34,33 @@ class Classifier(torch.nn.Module):
 
 
 
-def train(model, X, Y, criterion):
-    pass
+def train(model, X, Y, criterion, batch_size=64, lr=0.001, epochs=1000):
+    """Label the items first
+        items in X have label 1, items in Y have label 0
+        then train the model with sgd
+    """
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    for epoch in range(epochs):
+        print("epoch: ", epoch)
+        for i in range(0, len(X), batch_size):
+            optimizer.zero_grad()
+            X_batch = X[i:i+batch_size]
+            Y_batch = Y[i:i+batch_size]
+            X_batch = X_batch.to(device)
+            Y_batch = Y_batch.to(device)
+            output_X = model(X_batch)
+            output_Y = model(Y_batch)
+            loss_X = criterion(output_X, torch.ones(len(X_batch), 1).to(device))
+            loss_Y = criterion(output_Y, torch.zeros(len(Y_batch), 1).to(device))
+            loss = loss_X + loss_Y
+            loss.backward()
+            optimizer.step()
+    
 
-
-def inference(model, parameters, trial=1000):
+def inference(model,size_m, parameters, trial=1000):
     '''
     for t in range(trial):
-        Z, _ = gen_data(m, parameters)
+        Z, _ = gen_data(size_m, parameters)
         Z = Z.to(device)
         class=torch.sum(model(Z))
         success+=(class.item()==0)
