@@ -57,13 +57,13 @@ def LFI_plot(n_list, title="LFI_with_Blob" ,path='./data/', with_error_bar=True)
     plt.close()
     return fig
 
-def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
+def mmdG(X, Y, model_u, n, m, sigma, device, dtype):
     S = np.concatenate((X, Y), axis=0)
     S = MatConvert(S, device, dtype)
     Fea = model_u(S)
     n = X.shape[0]
     m = Y.shape[0]
-    return MMD_General(Fea, n, m, S, sigma, sigma0_u, ep)
+    return MMD_General(Fea, n, m, S, sigma)
 
 def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=False, LfI=True):  
     dtype = torch.float
@@ -117,14 +117,9 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
             total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) for i in range(batches)]
             total_Z=[Z[i*batch_m:i*batch_m+batch_m] for i in range(batches)]
             model_u = ModelLatentF(x_in, H, x_out).cuda()
-            epsilonOPT = MatConvert(np.random.rand(1) * (10 ** (-10)), device, dtype)
-            epsilonOPT.requires_grad = True
-            sigmaOPT = MatConvert(np.sqrt(np.random.rand(1) * 0.3), device, dtype)
-            sigmaOPT.requires_grad = True
-            sigma0OPT = MatConvert(np.sqrt(np.random.rand(1) * 0.002), device, dtype)
-            sigma0OPT.requires_grad = True
+            
             # Setup optimizer for training deep kernel
-            optimizer_u = torch.optim.Adam(list(model_u.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT], lr=learning_rate)
+            optimizer_u = torch.optim.Adam(list(model_u.parameters())+[sigma], lr=learning_rate)
             # Train deep kernel to maximize test power
             for t in range(N_epoch):
                 # Compute epsilon, sigma and sigma_0
@@ -145,10 +140,6 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                     print('Epoch:', t)
                     print("Statistic J: ", -1 * STAT_u.item())
             '''
-            ep_OPT[kk] = ep.item()
-            s_OPT[kk] = sigma.item()
-            s0_OPT[kk] = sigma0_u.item()
-            
             #testing overfitting
             print('TEST OVERFITTING:')            
             X1, Y1 = sample_blobs_Q(n, sigma_mx_2)
@@ -164,8 +155,8 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                     X, Y = sample_blobs_Q(n, sigma_mx_2)
                 Z, _ = sample_blobs_Q(m, sigma_mx_2)
                 # Run MMD on generated data
-                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)[0]
-                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)[0]
+                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, device, dtype)[0]
+                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, device, dtype)[0]
                 H_u[k] = mmd_XZ<mmd_YZ    
             print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", H_u.sum()/N_f)
             Results[0, kk] = H_u.sum() / N_f
@@ -175,8 +166,8 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                 if test_on_new_sample:
                     X, Y = sample_blobs_Q(n, sigma_mx_2)
                 _, Z = sample_blobs_Q(m, sigma_mx_2)
-                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)[0]
-                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, sigma0_u, device, dtype, ep)[0]
+                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, device, dtype)[0]
+                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, device, dtype)[0]
                 H_u[k] = mmd_XZ>mmd_YZ
             print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_u.sum()/N_f)
             Results[1, kk] = H_u.sum() / N_f
