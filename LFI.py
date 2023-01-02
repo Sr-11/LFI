@@ -153,7 +153,7 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
             print('TEST OVERFITTING:')            
             X1, Y1 = sample_blobs_Q(n, sigma_mx_2)
             with torch.torch.no_grad():
-               Do Something
+               Do Something Here
             '''
             H_u = np.zeros(N) 
             print("Under this trained kernel, we run N = %d times LFI: "%N)
