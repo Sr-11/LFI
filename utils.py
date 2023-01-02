@@ -89,38 +89,56 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
 
     return mmd2, varEst, Kxyxy
 
-def MMDu(Fea, len_s, Fea_org, sigma=0.1, sigma0=0.1, epsilon=10 ** (-10), is_smooth=False, is_var_computed=True, use_1sample_U=True):
-    """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
-    X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
-    Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)
-    Dxx = Pdist2(X, X)
-    Dyy = Pdist2(Y, Y)
-    Dxy = Pdist2(X, Y)
+def MMD_LFI_SQUARE(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m):
+    nx = batch_n
+    nz = batch_m
     if True:
-        Kx = torch.exp(-Dxx / sigma0)
-        Ky = torch.exp(-Dyy / sigma0)
-        Kxy = torch.exp(-Dxy / sigma0)
-    return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
+        xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
+        yy = torch.div((torch.sum(Ky) - torch.sum(torch.diag(Ky))), (nx * (nx - 1)))
+        # one-sample U-statistic.
+        xz = torch.div((torch.sum(Kxz) - torch.sum(torch.diag(Kxz))), (nx * (nz - 1)))
+        yz = torch.div((torch.sum(Kyz) - torch.sum(torch.diag(Kyz))), (nx * (nz - 1)))
+        mmd2 = xx - yy + 2* xz - 2* yz
+    return mmd2
 
-def MMD_LFI_std(Fea, Fea_org, batch_n, batch_m, is_var_computed=True):
-    """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
+def MMD_LFI_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1):
+    """computes the MMD squared statistics."""
     X=Fea[0:batch_n, :]
     Y=Fea[batch_n: 2*batch_n, :]
     Z=Fea[2*batch_n:, :]
-    pass
+    Dxx = Pdist2(X, X)
+    Dyy = Pdist2(Y, Y)
+    Dzz = Pdist2(Z, Z)
+    Dxz = Pdist2(X, Z)
+    Dyz = Pdist2(Y, Z)
+    Kx = torch.exp(-Dxx / sigma)
+    Ky = torch.exp(-Dyy / sigma)
+    Kz = torch.exp(-Dzz / sigma)
+    Kxz = torch.exp(-Dxz / sigma)
+    Kyz = torch.exp(-Dyz / sigma)
+    return MMD_LFI_SQUARE(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m), MMD_LFI_VAR(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m)
 
-def MMD_General(Fea, n, m, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=False):
+def MMD_LFI_VAR(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m):
+    '''computes the MMD squared variance.'''
+    pass
+    
+
+def MMD_General(Fea, n, m, Fea_org, sigma=0.1):
     X = Fea[0:n, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[n:, :] # fetch the sample 2 (features of deep networks)
     Dxx = Pdist2(X, X) #shape n by n
     Dyy = Pdist2(Y, Y) #shape m by m
     Dxy = Pdist2(X, Y) #shape n by m
     if True:
-        Kx = torch.exp(-Dxx / sigma0)
-        Ky = torch.exp(-Dyy / sigma0)
-        Kxy = torch.exp(-Dxy / sigma0)
-    is_var_computed=False
-    return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True)
+        Kx = torch.exp(-Dxx / sigma)
+        Ky = torch.exp(-Dyy / sigma)
+        Kxy = torch.exp(-Dxy / sigma)
+    return h1_mean_var_gram(Kx, Ky, Kxy, False)
+
+
+
+
+
 
 
 
@@ -167,7 +185,7 @@ def mmd2_permutations(K, n_X, permutations=500):
     rest = ests[:-1]
     p_val = (rest > est).float().mean()
     return est.item(), p_val.item(), rest
-
+'''
 def TST_MMD_adaptive_bandwidth(Fea, N_per, N1, Fea_org, sigma, sigma0, alpha, device, dtype):
     """run two-sample test (TST) using ordinary Gaussian kernel."""
     mmd_vector = np.zeros(N_per)
@@ -219,7 +237,7 @@ def TST_MMD_u(Fea, N_per, N1, Fea_org, sigma, sigma0, alpha, device, dtype, epsi
         h = 1
     threshold = "NaN"
     return h,threshold,mmd_value_nn
-
+'''
 def TST_MMD_u_linear_kernel(Fea, N_per, N1, alpha, device, dtype):
     """run two-sample test (TST) using (deep) lineaer kernel kernel."""
     mmd_vector = np.zeros(N_per)
@@ -321,3 +339,7 @@ def TST_C2ST(S,N1,N_per,alpha,model_C2ST, w_C2ST, b_C2ST,device,dtype):
         h = 1
     return h, threshold, STAT
 
+
+def relu(tensor):
+    """ReLU activation function."""
+    return torch.max(tensor, torch.zeros_like(tensor)).cuda()
