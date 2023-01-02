@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import sys
 from sklearn.utils import check_random_state
-from utils import MatConvert, MMDu, TST_MMD_u, mmd2_permutations, MMD_General, MMD_LFI_std
+from utils import MatConvert, MMD_General, MMD_LFI_STAT, relu
 from matplotlib import pyplot as plt
 import pickle
 from Data_gen import *
@@ -65,10 +65,7 @@ def mmdG(X, Y, model_u, n, m, sigma, sigma0_u, device, dtype, ep):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, sigma0_u, ep)
 
-def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, 
-            N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=True, LfI=False):  
-  # Setup seeds
-    torch.backends.cudnn.deterministic = True
+def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=False, LfI=True):  
     dtype = torch.float
     device = torch.device("cuda:0")
     x_in = 2 # number of neurons in the input layer, i.e., dimension of data
@@ -83,7 +80,6 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                 'N':N,}
     with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
         pickle.dump(parameters, pickle_file)
-    # Generate variance and co-variance matrix of Q
     sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
     sigma_mx_2 = np.zeros([9,2,2])
     for i in range(9):
@@ -97,7 +93,6 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
         if i>4:
             sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
             sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
-
     for i in range(len(n_list)):
         n=n_list[i]
         m=m_list[i]
@@ -106,10 +101,6 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
         print("##### K=%d big trials, N=%d tests per trial for inference of Z. #####"%(K,N))
         Results = np.zeros([2, K])
         J_star_u = np.zeros([K, N_epoch])
-        ep_OPT = np.zeros([K])
-        s_OPT = np.zeros([K])
-        s0_OPT = np.zeros([K])
-        
         for kk in range(K):
             print("### Start kk ###")
             if not SGD:
@@ -122,8 +113,8 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
             
             X, Y = sample_blobs_Q(n, sigma_mx_2)
             Z, _ = sample_blobs_Q(m, sigma_mx_2)
+            sigma=torch.tensor(0.1).cuda() #Make sigma trainable (or not) here
             total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) for i in range(batches)]
-            #total_S=[MatConvert(np.concatenate((X, Y), axis=0), device, dtype) for (X, Y) in total_S]
             total_Z=[Z[i*batch_m:i*batch_m+batch_m] for i in range(batches)]
             model_u = ModelLatentF(x_in, H, x_out).cuda()
             epsilonOPT = MatConvert(np.random.rand(1) * (10 ** (-10)), device, dtype)
@@ -140,26 +131,11 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                 for ind in range(batches):
                     x, y=total_S[ind] #minibatches
                     z=total_Z[ind]
-                    ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
-                    sigma = sigmaOPT ** 2
-                    sigma0_u = sigma0OPT ** 2
-                    if not LfI:
-                        S=MatConvert(np.concatenate((x, y), axis=0), device, dtype)
-                        modelu_output = model_u(S)
-                        TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep)
-                        mmd_value_temp = -1 * TEMP[0]
-                        mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8)) #this is std
-                        STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
-                    else:
+                    if LfI:
                         S=MatConvert(np.concatenate(([x, y, z]), axis=0), device, dtype)
                         Fea=model_u(S)
-                        #mmd_value_temp = torch.square(mmdG(x, z, model_u, batch_size, batch_m, sigma, sigma0_u, device, dtype, ep)-mmdG(y, z, model_u, batch_size, batch_m, sigma, sigma0_u, device, dtype, ep))
-                        #The above is correct form but very slow.
-                        lfi_temp=MMD_LFI_std(Fea, S, batch_size, batch_m,  sigma, sigma0_u, ep)
-                        #TODO: compute std
-                        mmd_squared_temp=torch.square(lfi_temp[0])
-                        mmd_var_temp=torch.nn.ReLU(lfi_temp[1])
-                        STAT_u = torch.sub(mmd_squared_temp, mmd_var_temp, alpha=1.0)
+                        mmd_squared_temp, mmd_squared_var_temp=MMD_LFI_STAT(Fea, S, batch_size, batch_m, sigma=sigma).to(device)
+                        STAT_u = torch.sub(mmd_squared_temp, relu(mmd_squared_var_temp), alpha=1.0)
                     J_star_u[kk, t] = STAT_u.item()
                     optimizer_u.zero_grad()
                     STAT_u.backward(retain_graph=True)
@@ -167,30 +143,17 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                 # Print MMD, std of MMD and J
                 if t % print_every == 0:
                     print('Epoch:', t)
-                    print("mmd_value: ", -1 * mmd_value_temp.item()) 
-                          #"mmd_std: ", mmd_std_temp.item(), 
                     print("Statistic J: ", -1 * STAT_u.item())
+            '''
             ep_OPT[kk] = ep.item()
             s_OPT[kk] = sigma.item()
             s0_OPT[kk] = sigma0_u.item()
-            '''
-            #testing how model behaves on untrained data
-            print('TEST OUR MODEL ON NEW SET OF DATA:')            
+            
+            #testing overfitting
+            print('TEST OVERFITTING:')            
             X1, Y1 = sample_blobs_Q(n, sigma_mx_2)
             with torch.torch.no_grad():
-                S1 = np.concatenate((X1, Y1), axis=0)
-                S1 = MatConvert(S1, device, dtype)
-                modelu_output = model_u(S1)
-                TEMP = MMDu(modelu_output, n, S1, sigma, sigma0_u, ep)
-                mmd_value_temp = -1 * TEMP[0]
-                mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8))
-                STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
-                if True:
-                    print("TEST mmd_value: ", -1 * mmd_value_temp.item()) 
-                    print("TEST Statistic J: ", -1 * STAT_u.item())
-            #print('epsilon:', ep)
-            #print('sigma:  ', sigma)
-            #print('sigma0: ', sigma0_u) 
+               Do Something
             '''
             H_u = np.zeros(N) 
             print("Under this trained kernel, we run N = %d times LFI: "%N)
