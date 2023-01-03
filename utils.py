@@ -120,7 +120,7 @@ def MMD_LFI_VAR(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m, mean_H):
     #V_nn=Expected of H_{ijk}*H_{ijl}
     V_mn= 0.0
     V_nn= 0.0
-    return V_mn/(batch_n*batch_m)+V_nn/(batch_n*batch_n)
+    return 2*V_mn/(batch_n*batch_m)+V_nn/(batch_n*batch_n)
 
 def MMD_General(Fea, n, m, Fea_org, sigma=0.1, cst=1.0):
     X = Fea[0:n, :] # fetch the sample 1 (features of deep networks)
