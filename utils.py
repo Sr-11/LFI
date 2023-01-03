@@ -3,7 +3,6 @@ import torch
 import torch.utils.data
 
 is_cuda = True
-
 class ModelLatentF(torch.nn.Module):
     """define deep networks."""
     def __init__(self, x_in, H, x_out):
@@ -89,50 +88,61 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
 
     return mmd2, varEst, Kxyxy
 
-def MMD_LFI_SQUARE(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m):
+def MMD_LFI_SQUARE(Kx, Ky, Kyz, Kxz, batch_n, batch_m, one_sample_U=False):
     nx = batch_n
     nz = batch_m
-    if True:
+    if one_sample_U:
         xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
         yy = torch.div((torch.sum(Ky) - torch.sum(torch.diag(Ky))), (nx * (nx - 1)))
         # one-sample U-statistic.
         xz = torch.div((torch.sum(Kxz) - torch.sum(torch.diag(Kxz))), (nx * (nz - 1)))
         yz = torch.div((torch.sum(Kyz) - torch.sum(torch.diag(Kyz))), (nx * (nz - 1)))
         mmd2 = xx - yy + 2* xz - 2* yz
+    else:
+        xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
+        yy = torch.div((torch.sum(Ky) - torch.sum(torch.diag(Ky))), (nx * (nx - 1)))
+        xz = torch.div((torch.sum(Kxz)), (nx * nz))
+        yz = torch.div((torch.sum(Kyz)), (nx * nz))
+        mmd2 = xx - yy + 2* xz - 2* yz
     return mmd2
 
-def MMD_LFI_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1):
+def MMD_LFI_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1, cst=1.0):
     """computes the MMD squared statistics."""
-    X=Fea[0:batch_n, :]
-    Y=Fea[batch_n: 2*batch_n, :]
-    Z=Fea[2*batch_n:, :]
-    Dxx = Pdist2(X, X)
-    Dyy = Pdist2(Y, Y)
+    X=Fea[0:batch_n, :] #has shape batch_n x out
+    Y=Fea[batch_n: 2*batch_n, :] #has shape batch_n x out
+    Z=Fea[2*batch_n:, :] #has shape batch_m x out
+    Dxx = Pdist2(X, X) #has shape batch_n x batch_n
+    Dyy = Pdist2(Y, Y) 
     Dzz = Pdist2(Z, Z)
     Dxz = Pdist2(X, Z)
     Dyz = Pdist2(Y, Z)
-    Kx = torch.exp(-Dxx / sigma)
-    Ky = torch.exp(-Dyy / sigma)
-    Kz = torch.exp(-Dzz / sigma)
-    Kxz = torch.exp(-Dxz / sigma)
-    Kyz = torch.exp(-Dyz / sigma)
-    return MMD_LFI_SQUARE(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m), MMD_LFI_VAR(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m)
+    Kx = cst * torch.exp(-Dxx / sigma) #has shape batch_n x batch_n
+    Ky = cst * torch.exp(-Dyy / sigma)
+    Kz = cst * torch.exp(-Dzz / sigma) #has shape batch_m x batch_m
+    Kxz = cst * torch.exp(-Dxz / sigma) #has shape batch_n x batch_m
+    Kyz = cst * torch.exp(-Dyz / sigma)
+    sq=MMD_LFI_SQUARE(Kx, Ky, Kyz, Kxz, batch_n, batch_m)
+    return sq, MMD_LFI_VAR(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m, sq)
 
-def MMD_LFI_VAR(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m):
+def MMD_LFI_VAR(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m, mean_H):
     '''computes the MMD squared variance.'''
-    pass
-    
+    #H_{ijk}=Kx[i:j]-Ky[i:j]-2*Kyz[i:k]+2*Kxz[i:k]-mean_H and has expectation 0
+    #V_mn=Expected of H_{ijk}*H_{ilk}
+    #V_nn=Expected of H_{ijk}*H_{ijl}
+    V_mn= 0.0
+    V_nn= 0.0
+    return V_mn/(batch_n*batch_m)+V_nn/(batch_n*batch_n)
 
-def MMD_General(Fea, n, m, Fea_org, sigma=0.1):
+def MMD_General(Fea, n, m, Fea_org, sigma=0.1, cst=1.0):
     X = Fea[0:n, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[n:, :] # fetch the sample 2 (features of deep networks)
     Dxx = Pdist2(X, X) #shape n by n
     Dyy = Pdist2(Y, Y) #shape m by m
     Dxy = Pdist2(X, Y) #shape n by m
     if True:
-        Kx = torch.exp(-Dxx / sigma)
-        Ky = torch.exp(-Dyy / sigma)
-        Kxy = torch.exp(-Dxy / sigma)
+        Kx = cst * torch.exp(-Dxx / sigma)
+        Ky = cst *torch.exp(-Dyy / sigma)
+        Kxy = cst * torch.exp(-Dxy / sigma)
     return h1_mean_var_gram(Kx, Ky, Kxy, False)
 
 def relu(tensor):

@@ -57,13 +57,13 @@ def LFI_plot(n_list, title="LFI_with_Blob" ,path='./data/', with_error_bar=True)
     plt.close()
     return fig
 
-def mmdG(X, Y, model_u, n, m, sigma, device, dtype):
+def mmdG(X, Y, model_u, n, m, sigma, cst, device, dtype):
     S = np.concatenate((X, Y), axis=0)
     S = MatConvert(S, device, dtype)
     Fea = model_u(S)
     n = X.shape[0]
     m = Y.shape[0]
-    return MMD_General(Fea, n, m, S, sigma)
+    return MMD_General(Fea, n, m, S, sigma, cst)
 
 def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=False, LfI=True):  
     dtype = torch.float
@@ -80,6 +80,7 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                 'N':N,}
     with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
         pickle.dump(parameters, pickle_file)
+
     sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
     sigma_mx_2 = np.zeros([9,2,2])
     for i in range(9):
@@ -93,6 +94,7 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
         if i>4:
             sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
             sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
+
     for i in range(len(n_list)):
         n=n_list[i]
         m=m_list[i]
@@ -113,23 +115,24 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
             
             X, Y = sample_blobs_Q(n, sigma_mx_2)
             Z, _ = sample_blobs_Q(m, sigma_mx_2)
-            sigma=torch.tensor(0.1).cuda() #Make sigma trainable (or not) here
+            sigma=torch.tensor(0.1, dtype=float).cuda() #Make sigma trainable (or not) here
+            cst=torch.tensor(1.0, dtype=float).cuda()
             total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) for i in range(batches)]
             total_Z=[Z[i*batch_m:i*batch_m+batch_m] for i in range(batches)]
             model_u = ModelLatentF(x_in, H, x_out).cuda()
             
             # Setup optimizer for training deep kernel
-            optimizer_u = torch.optim.Adam(list(model_u.parameters())+[sigma], lr=learning_rate)
+            optimizer_u = torch.optim.Adam(list(model_u.parameters())+[sigma]+[cst], lr=learning_rate)
             # Train deep kernel to maximize test power
             for t in range(N_epoch):
-                # Compute epsilon, sigma and sigma_0
+                # Compute sigma and cst
                 for ind in range(batches):
                     x, y=total_S[ind] #minibatches
                     z=total_Z[ind]
                     if LfI:
                         S=MatConvert(np.concatenate(([x, y, z]), axis=0), device, dtype)
                         Fea=model_u(S)
-                        mmd_squared_temp, mmd_squared_var_temp=MMD_LFI_STAT(Fea, S, batch_size, batch_m, sigma=sigma).to(device)
+                        mmd_squared_temp, mmd_squared_var_temp=MMD_LFI_STAT(Fea, S, batch_size, batch_m, sigma=sigma, cst=cst).to(device)
                         STAT_u = torch.sub(mmd_squared_temp, relu(mmd_squared_var_temp), alpha=1.0)
                     J_star_u[kk, t] = STAT_u.item()
                     optimizer_u.zero_grad()
@@ -154,9 +157,8 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                 if test_on_new_sample:
                     X, Y = sample_blobs_Q(n, sigma_mx_2)
                 Z, _ = sample_blobs_Q(m, sigma_mx_2)
-                # Run MMD on generated data
-                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, device, dtype)[0]
-                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, device, dtype)[0]
+                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, cst, device, dtype)[0]
+                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, cst, device, dtype)[0]
                 H_u[k] = mmd_XZ<mmd_YZ    
             print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", H_u.sum()/N_f)
             Results[0, kk] = H_u.sum() / N_f
@@ -166,8 +168,8 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                 if test_on_new_sample:
                     X, Y = sample_blobs_Q(n, sigma_mx_2)
                 _, Z = sample_blobs_Q(m, sigma_mx_2)
-                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, device, dtype)[0]
-                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, device, dtype)[0]
+                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, cst, device, dtype)[0]
+                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, cst, device, dtype)[0]
                 H_u[k] = mmd_XZ>mmd_YZ
             print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_u.sum()/N_f)
             Results[1, kk] = H_u.sum() / N_f
