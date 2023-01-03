@@ -52,33 +52,21 @@ def Pdist2(x, y):
 
 def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
     """compute value of MMD and std of MMD using kernel matrix."""
-    Kxxy = torch.cat((Kx,Kxy),1)
-    Kyxy = torch.cat((Kxy.transpose(0,1),Ky),1)
-    Kxyxy = torch.cat((Kxxy,Kyxy),0)
     nx = Kx.shape[0]
     ny = Ky.shape[0]
-    is_unbiased = True
-    if is_unbiased:
-        xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
-        yy = torch.div((torch.sum(Ky) - torch.sum(torch.diag(Ky))), (ny * (ny - 1)))
-        # one-sample U-statistic.
-        if use_1sample_U:
+    xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
+    yy = torch.div((torch.sum(Ky) - torch.sum(torch.diag(Ky))), (ny * (ny - 1)))
+    if use_1sample_U:
             xy = torch.div((torch.sum(Kxy) - torch.sum(torch.diag(Kxy))), (nx * (ny - 1)))
-        else:
-            xy = torch.div(torch.sum(Kxy), (nx * ny))
-        mmd2 = xx - 2 * xy + yy
     else:
-        xx = torch.div((torch.sum(Kx)), (nx * nx))
-        yy = torch.div((torch.sum(Ky)), (ny * ny))
-        # one-sample U-statistic.
-        if use_1sample_U:
-            xy = torch.div((torch.sum(Kxy)), (nx * ny))
-        else:
             xy = torch.div(torch.sum(Kxy), (nx * ny))
-        mmd2 = xx - 2 * xy + yy
+    mmd2 = xx - 2 * xy + yy
     if not is_var_computed:
         return mmd2, None
 
+    Kxxy = torch.cat((Kx,Kxy),1)
+    Kyxy = torch.cat((Kxy.transpose(0,1),Ky),1)
+    Kxyxy = torch.cat((Kxxy,Kyxy),0)
     hh = Kx+Ky-Kxy-Kxy.transpose(0,1)
     V1 = torch.dot(hh.sum(1)/ny,hh.sum(1)/ny) / ny
     V2 = (hh).sum() / (nx) / nx
@@ -126,6 +114,7 @@ def MMD_LFI_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1, cst=1.0):
 
 def MMD_LFI_VAR(Kx, Ky, Kz, Kyz, Kxz, batch_n, batch_m, mean_H):
     '''computes the MMD squared variance.'''
+    #One is suppose to set off some biased sample mean/variance estimate or something (i.e. /n vs /(n-1)) but I'm not sure how to do that here
     #H_{ijk}=Kx[i:j]-Ky[i:j]-2*Kyz[i:k]+2*Kxz[i:k]-mean_H and has expectation 0
     #V_mn=Expected of H_{ijk}*H_{ilk}
     #V_nn=Expected of H_{ijk}*H_{ijl}
