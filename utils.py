@@ -48,7 +48,7 @@ def Pdist2(x, y):
         y_norm = x_norm.view(1, -1)
     Pdist = x_norm + y_norm - 2.0 * torch.mm(x, torch.transpose(y, 0, 1))
     Pdist[Pdist<0]=0
-    return Pdist
+    return Pdist.cuda()
 
 def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
     """compute value of MMD and std of MMD using kernel matrix."""
@@ -114,10 +114,14 @@ def MMD_LFI_VAR(Kx, Ky, Kyz, Kxz, batch_n, batch_m, mean_H):
     '''computes the MMD squared variance.'''
     #One is suppose to set off some biased sample mean/variance estimate or something (i.e. /n vs /(n-1)) but I'm not sure how to do that here
     #H_{ijk}=Kx[i:j]-Ky[i:j]-2*Kyz[i:k]+2*Kxz[i:k]-mean_H and has expectation 0
-    #V_mn=Expected of H_{ijk}*H_{ilk}
-    #V_nn=Expected of H_{ijk}*H_{ijl}
-    V_mn= 0.0
-    V_nn= 0.0
+    #V_mn=average of H_{ijk}*H_{ilk} over all i, j, k, l
+    #V_nn=average of H_{ijk}*H_{ijl} over all i, j, k, l
+    #V_mn=H_{010}*H_{020}+H_{341}*H_{351}+H_{672}*H_{682}+...
+    #V_nn=H_{010}*H_{011}+H_{232}*H_{233}+H_{343}*H_{344}+...
+    one_samp=int(min(batch_n/3, batch_m))-1
+    nn_samp=int((batch_m-1)/2)
+    V_mn= sum([(Kx[3*i, 3*i+1]-Ky[3*i, 3*i+1]-2*Kyz[3*i,i]+2*Kxz[3*i,i]-mean_H)*(Kx[3*i, 3*i+2]-Ky[3*i, 3*i+2]-2*Kyz[3*i,i]+2*Kxz[3*i,i]-mean_H) for i in range(one_samp)])/one_samp
+    V_nn= sum([(Kx[2*i, 2*i+1]-Ky[2*i, 2*i+1]-2*Kyz[2*i,2*i]+2*Kxz[2*i,2*i]-mean_H)*(Kx[2*i, 2*i+1]-Ky[2*i, 2*i+1]-2*Kyz[2*i,2*i+1]+2*Kxz[2*i,2*i+1]-mean_H) for i in range(nn_samp)])/nn_samp
     return 2*V_mn/(batch_n*batch_m)+V_nn/(batch_n*batch_n)
 
 def MMD_General(Fea, n, m, Fea_org, sigma=0.1, cst=1.0):

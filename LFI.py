@@ -65,7 +65,7 @@ def mmdG(X, Y, model_u, n, m, sigma, cst, device, dtype):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, cst)
 
-def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=False, LfI=True):  
+def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=True, LfI=True):  
     dtype = torch.float
     device = torch.device("cuda:0")
     x_in = 2 # number of neurons in the input layer, i.e., dimension of data
@@ -107,6 +107,8 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
             print("### Start kk ###")
             if not SGD:
                 batch_size=n
+                batches=1
+                batch_size, batch_m = n, m
             else:
                 batches=n//batch_size
                 n=batches*batch_size #round up
@@ -116,7 +118,7 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
             X, Y = sample_blobs_Q(n, sigma_mx_2)
             Z, _ = sample_blobs_Q(m, sigma_mx_2)
             sigma=torch.tensor(0.1, dtype=float).cuda() #Make sigma trainable (or not) here
-            cst=torch.tensor(1.0, dtype=float).cuda()
+            cst=torch.tensor(0.0, dtype=float).cuda()
             total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) for i in range(batches)]
             total_Z=[Z[i*batch_m:i*batch_m+batch_m] for i in range(batches)]
             model_u = ModelLatentF(x_in, H, x_out).cuda()
