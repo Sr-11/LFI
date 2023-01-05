@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import sys
 from sklearn.utils import check_random_state
-from utils import MatConvert, MMD_General, MMD_LFI_STAT, relu
+from utils import MatConvert, MMD_General, MMD_LFI_STAT, relu, MMD_STAT
 from matplotlib import pyplot as plt
 import pickle
 from Data_gen import *
@@ -134,7 +134,10 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
                     if LfI:
                         S=MatConvert(np.concatenate(([x, y, z]), axis=0), device, dtype)
                         Fea=model_u(S)
-                        mmd_squared_temp, mmd_squared_var_temp=MMD_LFI_STAT(Fea, S, batch_size, batch_m, sigma=sigma, cst=cst)
+                        if LfI:
+                            mmd_squared_temp, mmd_squared_var_temp=MMD_LFI_STAT(Fea, S, batch_size, batch_m, sigma=sigma, cst=cst)
+                        else:    
+                            mmd_squared_temp, mmd_squared_var_temp=MMD_STAT(Fea, S, batch_size, batch_m, sigma=sigma, cst=cst)
                         STAT_u = torch.sub(mmd_squared_temp, relu(mmd_squared_var_temp), alpha=1.0)
                     J_star_u[kk, t] = STAT_u.item()
                     optimizer_u.zero_grad()

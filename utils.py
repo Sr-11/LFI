@@ -110,6 +110,17 @@ def MMD_LFI_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1, cst=1.0):
     sq=MMD_LFI_SQUARE(Kx, Ky, Kyz, Kxz, batch_n, batch_m)
     return sq, MMD_LFI_VAR(Kx, Ky, Kyz, Kxz, batch_n, batch_m, sq)
 
+def MMD_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1, cst=1.0):
+    X=Fea[0:batch_n, :] #has shape batch_n x out
+    Y=Fea[batch_n: 2*batch_n, :] #has shape batch_n x out
+    Dxx = Pdist2(X, X) #has shape batch_n x batch_n
+    Dyy = Pdist2(Y, Y) 
+    Dxy = Pdist2(X, Y)
+    Kx = cst * torch.exp(-Dxx / sigma) #has shape batch_n x batch_n
+    Ky = cst * torch.exp(-Dyy / sigma)
+    Kxy = cst * torch.exp(-Dxy / sigma) #has shape batch_n x batch_n
+    return h1_mean_var_gram(Kx, Ky, Kxy, True)
+
 def MMD_LFI_VAR(Kx, Ky, Kyz, Kxz, batch_n, batch_m, mean_H):
     '''computes the MMD squared variance.'''
     #One is suppose to set off some biased sample mean/variance estimate or something (i.e. /n vs /(n-1)) but I'm not sure how to do that here
