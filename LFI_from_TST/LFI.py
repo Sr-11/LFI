@@ -161,11 +161,9 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoc
             m = m_list[i]
             for k in range(N):       
                 Z1, Z2 = gen_fun(m)
-                # Run MMD on generated data
                 mmd_XZ = mmdG(X, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                 mmd_YZ = mmdG(Y, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                 H_u[k] = mmd_XZ<mmd_YZ    
-
                 mmd_XZ = mmdG(X, Z2, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                 mmd_YZ = mmdG(Y, Z2, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                 H_v[k] = mmd_XZ>mmd_YZ
