@@ -50,29 +50,16 @@ def blob(n):
             sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
     return sample_blobs_Q(n, sigma_mx_2)
 
-def diffusion_cifar10(n):
-    '''
-    To avoid loading the data multiple times, please use diffusion_cifar10() in LFI.py
-    '''
-    return None
-
-    if n <0 :
-        return 'DIFFUSION'
-
-    diffusion = np.load("./Diffusion/ddpm_generated_images.npy")
-    np.random.shuffle(diffusion)
-    diffusion = diffusion.reshape(n, -1)
-
+def load_diffusion_cifar():
+    diffusion = np.load("../Diffusion/ddpm_generated_images.npy")
     try:
-        trainset = datasets.CIFAR10(root='./data', train=True, download=False)
-        testset = datasets.CIFAR10(root='./data', train=False, download=False)
+        trainset = datasets.CIFAR10(root='../data', train=True, download=False)
     except:
-        trainset = datasets.CIFAR10(root='./data', train=True, download=True)
-        testset = datasets.CIFAR10(root='./data', train=False, download=True)
+        trainset = datasets.CIFAR10(root='../data', train=True, download=True)
+    cifar10 = np.zeros((50000,32,32,3))
+    for i in range(50000):
+        cifar10[i] = np.asarray(trainset[i][0])
 
-    cifar10 = np.zeros((n,32,32,3))
-    for i in range(n):
-        j = np.random.randint(0,50000)
-        cifar10[i] = np.asarray(trainset[j][0])
-    cifar10 = cifar10.reshape(n, -1)
-    return diffusion, cifar10
+    dataset_P = diffusion.reshape(diffusion.shape[0], -1)
+    dataset_Q = cifar10.reshape(cifar10.shape[0], -1)
+    return dataset_P, dataset_Q
