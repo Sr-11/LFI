@@ -44,7 +44,7 @@ def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
     n = X.shape[0]
     return MMD_General(Fea, n, S, sigma, sigma0_u, ep)
 
-def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoch=500, print_every=100, batch_size=32, test_on_new_sample=True, SGD=True):  
+def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoch=500, print_every=100, batch_size=32, test_on_new_sample=True, SGD=True, gen_fun=blob):  
     torch.backends.cudnn.deterministic = True
     dtype = torch.float
     device = torch.device("cuda:0")
@@ -61,27 +61,17 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoc
     parameters={'n':n,
                 'm_list':m_list,
                 'N_epoch':N_epoch,
+                'learning_rate':learning_rate,
+                'batch_size':batch_size,
+                'batches':batches,
+                'test_on_new_sample':test_on_new_sample,
+                'SGD':SGD,
+                'gen_fun':gen_fun(-1),
                 'K':K,
                 'N':N,}
     with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
         pickle.dump(parameters, pickle_file)
-
-
-    # Generate variance and co-variance matrix of Q
-    sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
-    sigma_mx_2 = np.zeros([9,2,2])
-    for i in range(9):
-        sigma_mx_2[i] = sigma_mx_2_standard
-        if i < 4:
-            sigma_mx_2[i][0 ,1] = -0.02 - 0.002 * i
-            sigma_mx_2[i][1, 0] = -0.02 - 0.002 * i
-        if i==4:
-            sigma_mx_2[i][0, 1] = 0.00
-            sigma_mx_2[i][1, 0] = 0.00
-        if i>4:
-            sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
-            sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
-
+    
     print("##### Starting N_epoch=%d epochs per data trial #####"%(N_epoch))
     print("##### K=%d independent kernels, N=%d tests per trial for inference of Z per m. #####"%(K,N))
     if test_on_new_sample:
@@ -94,7 +84,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoc
     s_OPT = np.zeros([K])
     s0_OPT = np.zeros([K])
     for kk in range(K):
-            X, Y = sample_blobs_Q(n, sigma_mx_2)
+            X, Y = gen_fun(n)
             total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) for i in range(batches)]
             total_S=[MatConvert(np.concatenate((X, Y), axis=0), device, dtype) for (X, Y) in total_S]
             model_u = ModelLatentF(x_in, H, x_out).cuda()
@@ -135,8 +125,8 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoc
             s0_OPT[kk] = sigma0_u.item()
             
             #testing how model behaves on untrained data
-            print('CRITERION NEW SET OF DATA:')            
-            X1, Y1 = sample_blobs_Q(n, sigma_mx_2)
+            print('CRITERION ON NEW SET OF DATA:')            
+            X1, Y1 = gen_fun(n)
             with torch.torch.no_grad():
                 S1 = np.concatenate((X1, Y1), axis=0)
                 S1 = MatConvert(S1, device, dtype)
@@ -150,11 +140,11 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoc
             H_u = np.zeros(N) 
             print("Under this trained kernel, we run N = %d times LFI: "%N)
             if test_on_new_sample:
-                X, Y = sample_blobs_Q(n, sigma_mx_2)
+                X, Y = gen_fun(n)
             for i in range(len(m_list)):
                 m = m_list[i]
                 for k in range(N):       
-                    Z, _ = sample_blobs_Q(m, sigma_mx_2)
+                    Z, _ = gen_fun(m)
                     # Run MMD on generated data
                     mmd_XZ = mmdG(X, Z, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                     mmd_YZ = mmdG(Y, Z, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
@@ -163,13 +153,13 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoc
                 Results[0, kk, i] = H_u.sum() / N_f
 
                 for k in range(N):
-                    _, Z = sample_blobs_Q(m, sigma_mx_2)
+                    _, Z = gen_fun(m)
                     mmd_XZ = mmdG(X, Z, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                     mmd_YZ = mmdG(Y, Z, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                     H_u[k] = mmd_XZ>mmd_YZ
                 print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_u.sum()/N_f)
                 Results[1, kk, i] = H_u.sum() / N_f
-    np.save('./data/LFI_tst'+str(n),Results) 
+    np.save('./data/LFI_tst_'+title+str(n),Results) 
     ####Plotting    
     #LFI_plot(n_list, title=title)
 
@@ -184,5 +174,7 @@ if __name__ == "__main__":
     try:
         title=sys.argv[1]
     except:
+        print("Warning: No title given, using default")
+        print('Please use specified titles for saving data')
         title='untitled_run'
     train_d(n, m_list, title=title)

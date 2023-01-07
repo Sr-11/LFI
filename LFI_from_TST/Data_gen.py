@@ -4,7 +4,8 @@ import sys
 from sklearn.utils import check_random_state
 from matplotlib import pyplot as plt
 from tqdm import trange
-import pickle
+####For gen_fun inputs, make sure they take in n and return X and Y
+####Moreover, make sure when n=-1 they return a string for the title
 
 def sample_blobs_Q(N1, sigma_mx_2, rows=3, cols=3, rs=None):
     """Generate Blob-D for testing type-II error (or test power)."""
@@ -27,3 +28,21 @@ def sample_blobs_Q(N1, sigma_mx_2, rows=3, cols=3, rs=None):
         ind2 = np.concatenate((ind, ind), 1)
         Y = np.where(ind2, np.matmul(Y,L) + locs[i], Y)
     return X, Y
+
+def blob(n):
+    if n <0 :
+        return 'BLOB'
+    sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
+    sigma_mx_2 = np.zeros([9,2,2])
+    for i in range(9):
+        sigma_mx_2[i] = sigma_mx_2_standard
+        if i < 4:
+            sigma_mx_2[i][0 ,1] = -0.02 - 0.002 * i
+            sigma_mx_2[i][1, 0] = -0.02 - 0.002 * i
+        if i==4:
+            sigma_mx_2[i][0, 1] = 0.00
+            sigma_mx_2[i][1, 0] = 0.00
+        if i>4:
+            sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
+            sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
+    return sample_blobs_Q(n, sigma_mx_2)
