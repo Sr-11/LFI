@@ -153,27 +153,27 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoc
                 print("TEST Statistic J: ", STAT_u.item())
                 
         H_u = np.zeros(N) 
+        H_v = np.zeros(N)
         print("Under this trained kernel, we run N = %d times LFI: "%N)
         if test_on_new_sample:
             X, Y = gen_fun(n)
         for i in range(len(m_list)):
             m = m_list[i]
             for k in range(N):       
-                Z, _ = gen_fun(m)
+                Z1, Z2 = gen_fun(m)
                 # Run MMD on generated data
-                mmd_XZ = mmdG(X, Z, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
-                mmd_YZ = mmdG(Y, Z, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
+                mmd_XZ = mmdG(X, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
+                mmd_YZ = mmdG(Y, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                 H_u[k] = mmd_XZ<mmd_YZ    
-            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", H_u.sum()/N_f)
-            Results[0, kk, i] = H_u.sum() / N_f
 
-            for k in range(N):
-                _, Z = gen_fun(m)
-                mmd_XZ = mmdG(X, Z, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
-                mmd_YZ = mmdG(Y, Z, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
-                H_u[k] = mmd_XZ>mmd_YZ
-            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_u.sum()/N_f)
-            Results[1, kk, i] = H_u.sum() / N_f
+                mmd_XZ = mmdG(X, Z2, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
+                mmd_YZ = mmdG(Y, Z2, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
+                H_v[k] = mmd_XZ>mmd_YZ
+            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", H_u.sum()/N_f)
+            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_v.sum()/N_f)
+            Results[0, kk, i] = H_u.sum() / N_f
+            Results[1, kk, i] = H_v.sum() / N_f
+
     np.save('./data/LFI_tst_'+title+str(n),Results) 
     ####Plotting    
     #LFI_plot(n_list, title=title)
