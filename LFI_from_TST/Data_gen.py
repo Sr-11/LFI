@@ -4,8 +4,9 @@ import sys
 from sklearn.utils import check_random_state
 from matplotlib import pyplot as plt
 from tqdm import trange
-####For gen_fun inputs, make sure they take in n and return X and Y
-####Moreover, make sure when n=-1 they return a string for the title
+import torchvision.datasets as datasets
+#### For gen_fun inputs, make sure they take in n and return X and Y
+#### Moreover, make sure when n=-1 they return a string for the title
 
 def sample_blobs_Q(N1, sigma_mx_2, rows=3, cols=3, rs=None):
     """Generate Blob-D for testing type-II error (or test power)."""
@@ -30,6 +31,8 @@ def sample_blobs_Q(N1, sigma_mx_2, rows=3, cols=3, rs=None):
     return X, Y
 
 def blob(n):
+    """ input: n, number of samples """
+    """ output: (n,d) numpy array, d is dimension of a datapoint """
     if n <0 :
         return 'BLOB'
     sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
@@ -46,3 +49,24 @@ def blob(n):
             sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
             sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
     return sample_blobs_Q(n, sigma_mx_2)
+
+def diffusion_cifar10(n):
+    if n <0 :
+        return 'DIFFUSION'
+
+    diffusion = np.load("./Diffusion/ddpm_generated_images.npy")
+    diffusion = diffusion[:n]
+    diffusion = diffusion.reshape(n, -1)
+
+    try:
+        trainset = datasets.CIFAR10(root='./data', train=True, download=False)
+        testset = datasets.CIFAR10(root='./data', train=False, download=False)
+    except:
+        trainset = datasets.CIFAR10(root='./data', train=True, download=True)
+        testset = datasets.CIFAR10(root='./data', train=False, download=True)
+
+    cifar10 = np.zeros((n,32,32,3))
+    for i in range(n):
+        cifar10[i] = np.asarray(trainset[i][0])
+    cifar10 = cifar10.reshape(n, -1)
+    return diffusion, cifar10

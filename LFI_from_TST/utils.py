@@ -55,12 +55,16 @@ def Pdist2(x, y):
 
 def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
     """compute value of MMD and std of MMD using kernel matrix."""
+    """Kx: (n_x,n_x)"""
+    """Kx: (n_y,n_y)"""
+    """Kxy: (n_x,n_y)"""
     Kxxy = torch.cat((Kx,Kxy),1)
     Kyxy = torch.cat((Kxy.transpose(0,1),Ky),1)
     Kxyxy = torch.cat((Kxxy,Kyxy),0)
     nx = Kx.shape[0]
     ny = Ky.shape[0]
     is_unbiased = True
+    
     if is_unbiased:
         xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
         yy = torch.div((torch.sum(Ky) - torch.sum(torch.diag(Ky))), (ny * (ny - 1)))
@@ -86,11 +90,12 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
     V1 = torch.dot(hh.sum(1)/ny,hh.sum(1)/ny) / ny
     V2 = (hh).sum() / (nx) / nx
     varEst = 4*(V1 - V2**2)
-    if  varEst == 0.0:
+    if varEst == 0.0:
         print('error!!'+str(V1))
     return mmd2, varEst, Kxyxy
 
-def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True, is_var_computed=True, use_1sample_U=True):
+def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), 
+         is_smooth=True, is_var_computed=True, use_1sample_U=True):
     """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
     X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)
@@ -111,6 +116,10 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=
         Kx = torch.exp(-Dxx / sigma0)
         Ky = torch.exp(-Dyy / sigma0)
         Kxy = torch.exp(-Dxy / sigma0)
+    
+    print(Kx.shape)
+    print(Ky.shape)
+    print(Kxy.shape)
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
 def MMD_General(Fea, n, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True):

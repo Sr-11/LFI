@@ -65,7 +65,9 @@ def mmdG(X, Y, model_u, n, m, sigma, cst, device, dtype):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, cst)
 
-def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, test_on_new_sample=True, SGD=True, LfI=True):  
+def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, 
+            K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, 
+            test_on_new_sample=True, SGD=True, LfI=True):  
     dtype = torch.float
     device = torch.device("cuda:0")
     x_in = 2 # number of neurons in the input layer, i.e., dimension of data
@@ -183,11 +185,6 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
         np.save('./data/LFI_'+str(n),Results) 
     ####Plotting    
     LFI_plot(n_list, title=title)
-
-def train_O(n_list, m_list):
-    #Trains optimized Gaussian Kernel Length
-    #implemented in DK-TST
-    pass
 
 if __name__ == "__main__":
     n_list = 50*np.array(range(12,13)) # number of samples in per mode
