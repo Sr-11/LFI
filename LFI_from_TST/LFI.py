@@ -177,4 +177,4 @@ if __name__ == "__main__":
         print("Warning: No title given, using default")
         print('Please use specified titles for saving data')
         title='untitled_run'
-    train_d(n, m_list, title=title)
+    train_d(n, m_list, title=title, learning_rate=5e-4, K=10, N=1000, N_epoch=500, print_every=100, batch_size=32, test_on_new_sample=True, SGD=True, gen_fun=blob)
