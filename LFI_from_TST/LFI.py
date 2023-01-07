@@ -7,6 +7,21 @@ from matplotlib import pyplot as plt
 import pickle
 from Data_gen import *
 
+# load dataset 
+diffusion = np.load("../Diffusion/ddpm_generated_images.npy")
+try:
+    trainset = datasets.CIFAR10(root='./data', train=True, download=False)
+    #testset = datasets.CIFAR10(root='./data', train=False, download=False)
+except:
+    trainset = datasets.CIFAR10(root='./data', train=True, download=True)
+    #testset = datasets.CIFAR10(root='./data', train=False, download=True)
+cifar10 = np.zeros((50000,32,32,3))
+for i in range(50000):
+    cifar10[i] = np.asarray(trainset[i][0])
+
+dataset_P = diffusion.reshape(diffusion.shape[0], -1)
+dataset_Q = cifar10.reshape(cifar10.shape[0], -1)
+
 class ModelLatentF(torch.nn.Module):
     """Latent space for both domains."""
     """ Dense Net with w=50, d=4, ~relu, in=2, out=50 """
@@ -192,6 +207,18 @@ if __name__ == "__main__":
         print("Warning: No title given, using default")
         print('Please use specified titles for saving data')
         title='untitled_run'
+
+    diffusion_data=True
+    if diffusion_data:
+        def diffusion_cifar10(n):
+            if n <0 :
+                return 'DIFFUSION'            
+            np.random.shuffle(dataset_P)
+            Xs = dataset_P[:n]
+            np.random.shuffle(dataset_Q)
+            Ys = dataset_Q[:n]
+            return Xs, Ys
+
     train_d(n, m_list, title=title, learning_rate=5e-4, K=10, N=1000, 
             N_epoch=500, print_every=100, batch_size=32, test_on_new_sample=True, 
             SGD=True, gen_fun=diffusion_cifar10)

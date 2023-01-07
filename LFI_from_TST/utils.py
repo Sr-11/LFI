@@ -116,10 +116,7 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10),
         Kx = torch.exp(-Dxx / sigma0)
         Ky = torch.exp(-Dyy / sigma0)
         Kxy = torch.exp(-Dxy / sigma0)
-    
-    print(Kx.shape)
-    print(Ky.shape)
-    print(Kxy.shape)
+
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
 def MMD_General(Fea, n, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True):

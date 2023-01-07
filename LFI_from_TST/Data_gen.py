@@ -51,11 +51,16 @@ def blob(n):
     return sample_blobs_Q(n, sigma_mx_2)
 
 def diffusion_cifar10(n):
+    '''
+    To avoid loading the data multiple times, please use diffusion_cifar10() in LFI.py
+    '''
+    return None
+
     if n <0 :
         return 'DIFFUSION'
 
     diffusion = np.load("./Diffusion/ddpm_generated_images.npy")
-    diffusion = diffusion[:n]
+    np.random.shuffle(diffusion)
     diffusion = diffusion.reshape(n, -1)
 
     try:
@@ -67,6 +72,7 @@ def diffusion_cifar10(n):
 
     cifar10 = np.zeros((n,32,32,3))
     for i in range(n):
-        cifar10[i] = np.asarray(trainset[i][0])
+        j = np.random.randint(0,50000)
+        cifar10[i] = np.asarray(trainset[j][0])
     cifar10 = cifar10.reshape(n, -1)
     return diffusion, cifar10
