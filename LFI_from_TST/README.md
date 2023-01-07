@@ -9,3 +9,4 @@ LFI trains functions with proper inputs.
 Plot_from takes in input from data folder, which tracks the result and parameters from each run
 
 TODOS:
+Do something
