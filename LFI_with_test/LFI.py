@@ -180,7 +180,7 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, K=15
             Results[1, kk] = H_u.sum() / N_f
         ##### Save np #####
         print("END")
-        np.save('./data/LFI_'+str(n),Results) 
+        np.save('./data/LFI_lfi'+str(n),Results) 
     ####Plotting    
     LFI_plot(n_list, title=title)
 
