@@ -206,7 +206,7 @@ if __name__ == "__main__":
 
     train_d(n, m_list, title=title, learning_rate=5e-4, K=10, N=1000, 
             N_epoch=50, print_every=100, batch_size=32, test_on_new_sample=True, 
-            SGD=True, gen_fun=diffusion_cifar10)
+            SGD=True, gen_fun=blob)
     # n: size of X, Y
     # m: size of Z
     # K: number of experiments, each with different X, Y
