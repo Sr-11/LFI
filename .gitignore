@@ -4,5 +4,4 @@ LFI_from_TST/data/cifar-10-python.tar.gz
 *.gz
 data/cifar10/cifar-10-python.tar.gz
 data/cifar-10-python.tar.gz
-./Diffusion/ddpm_generated_images.npy
-Diffusion/ddpm_generated_images.npy
+Diffusion/ddpm_generated_images_large.npy

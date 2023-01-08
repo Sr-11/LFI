@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 import pickle
 from Data_gen import *
 import torch.nn as nn
+import time
 
 class ModelLatentF(torch.nn.Module):
     """Latent space for both domains."""
@@ -112,9 +113,30 @@ def mmdG(X, Y, model_u, n, m, sigma, cst, device, dtype):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, cst)
 
-def train_d(n, m_list, title='Default', learning_rate=5e-4, 
+def train_d(n_list, m_list, title='Default', learning_rate=5e-4, 
             K=10, N=1000, N_epoch=50, print_every=100, batch_size=32, 
-            test_on_new_sample=True, SGD=True, gen_fun=blob, seed=42):  
+            test_on_new_sample=True, SGD=True, gen_fun=blob, seed=42):
+    # deal with the n%batch_size problem
+    print('-------------------')
+    print('Use SGD:',SGD)
+    print('n_list:',n_list)
+    print('m_list:',m_list)
+    n_list_rounded = []
+    m_list_rounded = []
+    for i in range(len(n_list)):
+        n=n_list[i]
+        m=m_list[i]
+        batches=n//batch_size
+        n=batches*batch_size #round up
+        batch_m=m//batches
+        m=(m//batches)*batches
+        n_list_rounded.append(n)
+        m_list_rounded.append(m)
+    if SGD==True:
+        print('n_list_rounded:',n_list_rounded)
+        print('m_list_rounded:',m_list_rounded)
+    print('-------------------')
+
     #set random seed for torch and numpy
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -152,12 +174,12 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
     else:
         raise ValueError('gen_fun not supported')
 
-    n_list_rounded = [] # n will be rounded up to batch_size, so should pass n_list_rounded into LFI_plot
-
     for i in range(len(n_list)):
         n = n_list[i]
         m = m_list[i]
         print("##### Starting n=%d and m=%d #####"%(n, m))
+        print("##### True n=%d and m=%d #####"%(n_list_rounded[i], m_list_rounded[i]))
+
         print("##### Starting N_epoch=%d epochs #####"%(N_epoch))
         print("##### K=%d big trials, N=%d tests per trial for inference of Z. #####"%(K,N))
         Results = np.zeros([2, K])
@@ -172,8 +194,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
             n=batches*batch_size #round up
             m=(m//batches)*batches
             batch_m=m//batches
-        n_list_rounded.append(n)
-        
+
         for kk in range(K):
             print("### Start %d of %d ###"%(kk,K))
 
@@ -231,23 +252,24 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
             H_u = np.zeros(N) 
             H_v = np.zeros(N) 
             print("Under this trained kernel, we run N = %d times LFI: "%N)
-            for k in range(N):
+            print("start testing m = %d"%m)
+            for k in range(N):    
                 if test_on_new_sample:
-                    X, Y = gen_fun(n)
-                print("start testing m = %d"%m_list[i])
-                m = m_list[i]
-                for k in range(N):       
-                    Z1, Z2 = gen_fun(m)
-                    mmd_XZ = mmdG(X, Z1, model_u, n, m, sigma, cst, device, dtype)[0]
-                    mmd_YZ = mmdG(Y, Z1, model_u, n, m, sigma, cst, device, dtype)[0]
-                    H_u[k] = mmd_XZ<mmd_YZ    
-                    mmd_XZ = mmdG(X, Z2, model_u, n, m, sigma, cst, device, dtype)[0]
-                    mmd_YZ = mmdG(Y, Z2, model_u, n, m, sigma, cst, device, dtype)[0]
-                    H_v[k] = mmd_XZ>mmd_YZ
-                Results[0, kk] = H_u.sum() / float(N)
-                Results[1, kk] = H_v.sum() / float(N)
-                print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", Results[0, kk])
-                print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", Results[1, kk])
+                    X, Y = gen_fun(n)   
+                Z1, Z2 = gen_fun(m)
+                #t = time.time()
+                mmd_XZ = mmdG(X, Z1, model_u, n, m, sigma, cst, device, dtype)[0]
+                mmd_YZ = mmdG(Y, Z1, model_u, n, m, sigma, cst, device, dtype)[0]
+                H_u[k] = mmd_XZ<mmd_YZ    
+                mmd_XZ = mmdG(X, Z2, model_u, n, m, sigma, cst, device, dtype)[0]
+                mmd_YZ = mmdG(Y, Z2, model_u, n, m, sigma, cst, device, dtype)[0]
+                H_v[k] = mmd_XZ>mmd_YZ
+                #print(time.time() - t,'gen')
+
+            Results[0, kk] = H_u.sum() / float(N)
+            Results[1, kk] = H_v.sum() / float(N)
+            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", Results[0, kk])
+            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", Results[1, kk])
 
         ##### Save np #####
         print("END")
@@ -275,14 +297,14 @@ if __name__ == "__main__":
         def diffusion_cifar10(n):
             if n <0 :
                 return 'DIFFUSION'            
-            np.random.shuffle(dataset_P)
-            Xs = dataset_P[:n]
-            np.random.shuffle(dataset_Q)
-            Ys = dataset_Q[:n]
+            #np.random.shuffle(dataset_P)
+            Xs = dataset_P[np.random.choice(dataset_P.shape[0], n)]
+            #np.random.shuffle(dataset_Q)
+            Ys = dataset_Q[np.random.choice(dataset_Q.shape[0], n)]
             return Xs, Ys
     
     # gen_fun = blob, diffusion_cifar10
-    train_d(n_list, m_list, title=title, N_epoch=1, K=2, N=10,
+    train_d(n_list, m_list, title=title, N_epoch=1, K=2, N=100,
             gen_fun=diffusion_cifar10, 
             SGD=True, batch_size=batch_size,
             seed=random_seed)

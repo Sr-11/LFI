@@ -48,7 +48,7 @@ def blob(n):
         if i>4:
             sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
             sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
-    return Hsample_blobs_Q(n, sigma_mx_2)
+    return sample_blobs_Q(n, sigma_mx_2)
 
 
 def load_diffusion_cifar():
