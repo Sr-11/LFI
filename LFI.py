@@ -6,6 +6,7 @@ from utils import MatConvert, MMD_General, MMD_LFI_STAT, relu, MMD_STAT
 from matplotlib import pyplot as plt
 import pickle
 from Data_gen import *
+import torch.nn as nn
 
 class ModelLatentF(torch.nn.Module):
     """Latent space for both domains."""
@@ -27,6 +28,38 @@ class ModelLatentF(torch.nn.Module):
         """Forward the LeNet."""
         fealant = self.latent(input)
         return fealant
+# Note: in DK_TST, they first interpolate CIFAR10 from 32x32 to 64x64
+# Here input should be (N,3x64x64), dim=3*64*64 
+class ConvNet_CIFAR10(nn.Module):
+    """
+    input: (N,3x64x64)
+    output: (N,300)
+    """
+    def __init__(self):
+        super(ConvNet_CIFAR10, self).__init__()
+        def discriminator_block(in_filters, out_filters, bn=True):
+            block =([nn.Conv2d(in_filters, out_filters, 3, 2, 1), 
+                     nn.LeakyReLU(0.2, inplace=True),  
+                     nn.Dropout2d(0)]) #0.25
+            if bn:
+                block.append(nn.BatchNorm2d(out_filters, 0.8))
+            return block
+        self.model = nn.Sequential(
+            nn.Unflatten(1,(3,64,64)),
+            *discriminator_block(3, 16, bn=False),
+            *discriminator_block(16, 32),
+            *discriminator_block(32, 64),
+            *discriminator_block(64, 128),
+        )
+        # The height and width of downsampled image
+        ds_size = 64 // 2 ** 4
+        self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 300))
+    def forward(self, img):
+        out = self.model(img)
+        out = out.view(out.shape[0], -1)
+        feature = self.adv_layer(out)
+        return feature
+
 
 def LFI_plot(n_list, title="LFI_with_Blob" ,path='./data/', with_error_bar=True):
     Results_list = []
