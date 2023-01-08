@@ -44,7 +44,7 @@ def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
     n = X.shape[0]
     return MMD_General(Fea, n, S, sigma, sigma0_u, ep)
 
-def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoch=500, 
+def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoch=50, 
             print_every=100, batch_size=32, test_on_new_sample=True, SGD=True, gen_fun=blob):  
     
     torch.backends.cudnn.deterministic = True
@@ -158,6 +158,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoc
         if test_on_new_sample:
             X, Y = gen_fun(n)
         for i in range(len(m_list)):
+            print("start testing m = %d"%m_list[i])
             m = m_list[i]
             for k in range(N):       
                 Z1, Z2 = gen_fun(m)
@@ -182,7 +183,7 @@ def train_O(n_list, m_list):
     pass
 
 if __name__ == "__main__":
-    n=100
+    n=500
     m_list = 10*np.array(range(4,5))
     try:
         title=sys.argv[1]
@@ -204,7 +205,7 @@ if __name__ == "__main__":
             return Xs, Ys
 
     train_d(n, m_list, title=title, learning_rate=5e-4, K=10, N=1000, 
-            N_epoch=500, print_every=100, batch_size=32, test_on_new_sample=True, 
+            N_epoch=50, print_every=100, batch_size=32, test_on_new_sample=True, 
             SGD=True, gen_fun=diffusion_cifar10)
     # n: size of X, Y
     # m: size of Z

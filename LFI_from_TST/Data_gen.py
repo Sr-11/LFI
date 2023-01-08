@@ -8,7 +8,7 @@ import torchvision.datasets as datasets
 #### For gen_fun inputs, make sure they take in n and return X and Y
 #### Moreover, make sure when n=-1 they return a string for the title
 
-def sample_blobs_Q(N1, sigma_mx_2, rows=3, cols=3, rs=None):
+def Hsample_blobs_Q(N1, sigma_mx_2, rows=3, cols=3, rs=None):
     """Generate Blob-D for testing type-II error (or test power)."""
     """ X ~ N(0, 0.03) + randint """
     """ Y ~ N(0, sigma_mx_2(9*2*2)) + {0,1,2}^2 """
@@ -48,7 +48,7 @@ def blob(n):
         if i>4:
             sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
             sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
-    return sample_blobs_Q(n, sigma_mx_2)
+    return Hsample_blobs_Q(n, sigma_mx_2)
 
 def load_diffusion_cifar():
     diffusion = np.load("../Diffusion/ddpm_generated_images.npy")
