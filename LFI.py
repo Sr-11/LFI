@@ -28,11 +28,12 @@ class ModelLatentF(torch.nn.Module):
         """Forward the LeNet."""
         fealant = self.latent(input)
         return fealant
+        
 # Note: in DK_TST, they first interpolate CIFAR10 from 32x32 to 64x64
-# Here input should be (N,3x64x64), dim=3*64*64 
+# Here input should be (N,3x32x32), dim=3*32*32 
 class ConvNet_CIFAR10(nn.Module):
     """
-    input: (N,3x64x64)
+    input: (N,3x32x32)
     output: (N,300)
     """
     def __init__(self):
@@ -45,14 +46,14 @@ class ConvNet_CIFAR10(nn.Module):
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
         self.model = nn.Sequential(
-            nn.Unflatten(1,(3,64,64)),
+            nn.Unflatten(1,(3,32,32)),
             *discriminator_block(3, 16, bn=False),
             *discriminator_block(16, 32),
             *discriminator_block(32, 64),
             *discriminator_block(64, 128),
         )
         # The height and width of downsampled image
-        ds_size = 64 // 2 ** 4
+        ds_size = 32 // 2 ** 4 # for 64*64 image, set ds_size = 64 // 2 ** 4
         self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 300))
     def forward(self, img):
         out = self.model(img)
@@ -60,6 +61,14 @@ class ConvNet_CIFAR10(nn.Module):
         feature = self.adv_layer(out)
         return feature
 
+def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
+    """compute the criterion."""
+    ######IMPORTANT: if we want to maximize, need to multiply by -1######
+    if liuetal:
+        mmd_std_temp = torch.sqrt(mmd_var+10**(-8)) #this is std
+        return torch.div(mmd_val, mmd_std_temp)
+    elif Sharpe:
+        return mmd_val - 2.0 * mmd_var
 
 def LFI_plot(n_list, title="LFI_with_Blob" ,path='./data/', with_error_bar=True):
     Results_list = []
@@ -94,7 +103,7 @@ def LFI_plot(n_list, title="LFI_with_Blob" ,path='./data/', with_error_bar=True)
     plt.close()
     return fig
 
-
+# NoteL MMD_General is in utils.py
 def mmdG(X, Y, model_u, n, m, sigma, cst, device, dtype):
     S = np.concatenate((X, Y), axis=0)
     S = MatConvert(S, device, dtype)
@@ -103,42 +112,51 @@ def mmdG(X, Y, model_u, n, m, sigma, cst, device, dtype):
     m = Y.shape[0]
     return MMD_General(Fea, n, m, S, sigma, cst)
 
-def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4, 
-            K=15, N=1000, N_epoch=51, print_every=100, batch_size=50, 
-            test_on_new_sample=True, SGD=True, LfI=True):  
+def train_d(n, m_list, title='Default', learning_rate=5e-4, 
+            K=10, N=1000, N_epoch=50, print_every=100, batch_size=32, 
+            test_on_new_sample=True, SGD=True, gen_fun=blob, seed=42):  
+    #set random seed for torch and numpy
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
     dtype = torch.float
     device = torch.device("cuda:0")
-    x_in = 2 # number of neurons in the input layer, i.e., dimension of data
-    H = 50 # number of neurons in the hidden layer
-    x_out = 50 # number of neurons in the output layer
-    N_f = float(N) # number of test sets (float)
-    parameters={'n_list':n_list,
-                'm_list':m_list,
-                'N_epoch':N_epoch,
-                'N_per':N_per,
-                'K':K,
-                'N':N,}
-    with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
-        pickle.dump(parameters, pickle_file)
 
-    sigma_mx_2_standard = np.array([[0.03, 0], [0, 0.03]])
-    sigma_mx_2 = np.zeros([9,2,2])
-    for i in range(9):
-        sigma_mx_2[i] = sigma_mx_2_standard
-        if i < 4:
-            sigma_mx_2[i][0 ,1] = -0.02 - 0.002 * i
-            sigma_mx_2[i][1, 0] = -0.02 - 0.002 * i
-        if i==4:
-            sigma_mx_2[i][0, 1] = 0.00
-            sigma_mx_2[i][1, 0] = 0.00
-        if i>4:
-            sigma_mx_2[i][1, 0] = 0.02 + 0.002 * (i-5)
-            sigma_mx_2[i][0, 1] = 0.02 + 0.002 * (i-5)
-    
+    #save parameters
+    # N_f = float(N) # number of test sets (float)
+    # parameters={'n':n,
+    #             'm_list':m_list,
+    #             'N_epoch':N_epoch,
+    #             'learning_rate':learning_rate,
+    #             'batch_size':batch_size,
+    #             'batches':batches,
+    #             'test_on_new_sample':test_on_new_sample,
+    #             'SGD':SGD,
+    #             'gen_fun':gen_fun(-1),
+    #             'K':K,
+    #             'seed' : seed,
+    #             'N':N,}
+    # with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
+    #     pickle.dump(parameters, pickle_file)
+
+    #initialize the data and model
+    if gen_fun == blob:
+        print("Using blob")
+        x_in = 2 # number of neurons in the input layer, i.e., dimension of data, blob:2
+        H = 50
+        x_out = 50 # number of neurons in the output layer (feature space)
+    elif gen_fun == diffusion_cifar10:
+        print("Using diffusion_cifar10")
+        x_in = 3*64*64
+        x_out = 300
+    else:
+        raise ValueError('gen_fun not supported')
+
     n_list_rounded = [] # n will be rounded up to batch_size, so should pass n_list_rounded into LFI_plot
+
     for i in range(len(n_list)):
-        n=n_list[i]
-        m=m_list[i]
+        n = n_list[i]
+        m = m_list[i]
         print("##### Starting n=%d and m=%d #####"%(n, m))
         print("##### Starting N_epoch=%d epochs #####"%(N_epoch))
         print("##### K=%d big trials, N=%d tests per trial for inference of Z. #####"%(K,N))
@@ -159,34 +177,42 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4,
         for kk in range(K):
             print("### Start %d of %d ###"%(kk,K))
 
-            X, Y = sample_blobs_Q(n, sigma_mx_2)
-            Z, _ = sample_blobs_Q(m, sigma_mx_2)
+            # Generate data
+            X, Y = gen_fun(n)
+            Z, _ = gen_fun(m)
+
+            # Setup model, sigma and cst are trainable parameters
             sigma=torch.tensor(0.1, dtype=float).cuda() #Make sigma trainable (or not) here
             cst=torch.tensor(1.0, dtype=float).cuda()
+            if gen_fun == blob:
+                model_u = ModelLatentF(x_in, H, x_out).cuda()
+            elif gen_fun == diffusion_cifar10:
+                model_u = ConvNet_CIFAR10().cuda()
+            else:
+                raise ValueError('gen_fun not supported')
+            # Cut data into batches
             total_S=[(X[i*batch_size:i*batch_size+batch_size], Y[i*batch_size:i*batch_size+batch_size]) 
                      for i in range(batches)] # total_S[0~batches-1][0~1]:(batch_size,2)
             total_Z=[Z[i*batch_m:i*batch_m+batch_m] for i in range(batches)]
 
-            model_u = ModelLatentF(x_in, H, x_out).cuda()
             # Setup optimizer for training deep kernel
             optimizer_u = torch.optim.Adam(list(model_u.parameters())+[sigma]+[cst], lr=learning_rate)
+
             # Train deep kernel to maximize test power
             for t in range(N_epoch):
                 # Compute sigma and cst
                 for ind in range(batches):
                     x, y=total_S[ind] #minibatches
                     z = total_Z[ind]
-                    if LfI:
-                        S=MatConvert(np.concatenate(([x, y, z]), axis=0), device, dtype)
-                        Fea=model_u(S)
-                        # Note: MMD_LFI_STAT takes (ϕ(x), ϕ(y), ϕ(z))
-                        #       MMD_STAT     takes (ϕ(x), ϕ(y))
-                        if LfI:
-                            mmd_squared_temp, mmd_squared_var_temp = MMD_LFI_STAT(Fea, S, batch_size, batch_m, sigma=sigma, cst=cst)
-                        else:    
-                            mmd_squared_temp, mmd_squared_var_temp = MMD_STAT(Fea, S, batch_size, batch_m, sigma=sigma, cst=cst)
-                        STAT_u = torch.sub(mmd_squared_temp, relu(mmd_squared_var_temp), alpha=1.0)
-
+                    S = MatConvert(np.concatenate(([x, y, z]), axis=0), device, dtype)
+                    Fea = model_u(S)
+                    # Note: MMD_LFI_STAT takes (ϕ(x), ϕ(y), ϕ(z))
+                    #       MMD_STAT     takes (ϕ(x), ϕ(y))
+                    #if LfI:
+                    mmd_squared_temp, mmd_squared_var_temp = MMD_LFI_STAT(Fea, S, batch_size, batch_m, sigma=sigma, cst=cst)
+                    #else:    
+                    #    mmd_squared_temp, mmd_squared_var_temp = MMD_STAT(Fea, S, batch_size, batch_m, sigma=sigma, cst=cst)
+                    STAT_u = torch.sub(mmd_squared_temp, relu(mmd_squared_var_temp), alpha=1.0)
                     J_star_u[kk, t] = STAT_u.item()
                     optimizer_u.zero_grad()
                     STAT_u.backward(retain_graph=True)
@@ -203,40 +229,77 @@ def train_d(n_list, m_list, N_per=100, title='Default', learning_rate=5e-4,
                Do Something Here
             '''
             H_u = np.zeros(N) 
+            H_v = np.zeros(N) 
             print("Under this trained kernel, we run N = %d times LFI: "%N)
-            
-            ##### Z~X #####
             for k in range(N):
                 if test_on_new_sample:
-                    X, Y = sample_blobs_Q(n, sigma_mx_2)
-                Z, _ = sample_blobs_Q(m, sigma_mx_2)
-                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, cst, device, dtype)[0]
-                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, cst, device, dtype)[0]
-                H_u[k] = mmd_XZ<mmd_YZ    
-            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", H_u.sum()/N_f)
-            Results[0, kk] = H_u.sum() / N_f
+                    X, Y = gen_fun(n)
+                print("start testing m = %d"%m_list[i])
+                m = m_list[i]
+                for k in range(N):       
+                    Z1, Z2 = gen_fun(m)
+                    mmd_XZ = mmdG(X, Z1, model_u, n, m, sigma, cst, device, dtype)[0]
+                    mmd_YZ = mmdG(Y, Z1, model_u, n, m, sigma, cst, device, dtype)[0]
+                    H_u[k] = mmd_XZ<mmd_YZ    
+                    mmd_XZ = mmdG(X, Z2, model_u, n, m, sigma, cst, device, dtype)[0]
+                    mmd_YZ = mmdG(Y, Z2, model_u, n, m, sigma, cst, device, dtype)[0]
+                    H_v[k] = mmd_XZ>mmd_YZ
+                Results[0, kk] = H_u.sum() / float(N)
+                Results[1, kk] = H_v.sum() / float(N)
+                print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", Results[0, kk])
+                print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", Results[1, kk])
 
-            ##### Z~Y #####
-            for k in range(N):
-                if test_on_new_sample:
-                    X, Y = sample_blobs_Q(n, sigma_mx_2)
-                _, Z = sample_blobs_Q(m, sigma_mx_2)
-                mmd_XZ = mmdG(X, Z, model_u, n, m, sigma, cst, device, dtype)[0]
-                mmd_YZ = mmdG(Y, Z, model_u, n, m, sigma, cst, device, dtype)[0]
-                H_u[k] = mmd_XZ>mmd_YZ
-            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_u.sum()/N_f)
-            Results[1, kk] = H_u.sum() / N_f
         ##### Save np #####
         print("END")
         np.save('./data/LFI_'+str(n),Results) 
     ####Plotting    
-    LFI_plot(n_list_rounded, title=title)
+    #LFI_plot(n_list_rounded, title=title)
+
+
 
 if __name__ == "__main__":
     n_list = 10*np.array(range(12,13)) # number of samples in per mode
     m_list = 10*np.array(range(4,5))
+    batch_size = 32 # if SGD=True, please make sure n%batch_size==0, (m*batches)%n==0
+    random_seed = 42
     try:
         title=sys.argv[1]
     except:
+        print("Warning: No title given, using default")
+        print('Please use specified titles for saving data')
         title='untitled_run'
-    train_d(n_list, m_list, title=title, N_epoch=0, K=2)
+
+    diffusion_data=True
+    if diffusion_data:
+        dataset_P, dataset_Q = load_diffusion_cifar() #Helper Function in Data_gen.py
+        def diffusion_cifar10(n):
+            if n <0 :
+                return 'DIFFUSION'            
+            np.random.shuffle(dataset_P)
+            Xs = dataset_P[:n]
+            np.random.shuffle(dataset_Q)
+            Ys = dataset_Q[:n]
+            return Xs, Ys
+    
+    # gen_fun = blob, diffusion_cifar10
+    train_d(n_list, m_list, title=title, N_epoch=1, K=2, N=10,
+            gen_fun=diffusion_cifar10, 
+            SGD=True, batch_size=batch_size,
+            seed=random_seed)
+
+    #train_d(n_list, m_list, title=title, learning_rate=5e-4, K=100, N=1000, 
+    #        N_epoch=1, print_every=100, batch_size=32, test_on_new_sample=False, 
+    #        SGD=True, gen_fun=blob, seed=random_seed)
+    # n: size of X, Y
+    # m: size of Z
+    # K: number of experiments, each with different X, Y
+    # N: number of runs for LFI, each with different Z
+
+    # title: used for saving data
+    # learning_rate: learning rate for training
+    # N_epoch: number of epochs for training
+    # print_every: print every print_every epochs during training
+    # batch_size: batch size for training
+    # test_on_new_sample: if Flase, use the same X, Y for test (overfit)
+    # SGD: if True, use batch_size
+    # gen_fun: from Data_gen.py

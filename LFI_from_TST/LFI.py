@@ -77,8 +77,9 @@ def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
     n = X.shape[0]
     return MMD_General(Fea, n, S, sigma, sigma0_u, ep)
 
-def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoch=50, 
-            print_every=100, batch_size=32, test_on_new_sample=True, SGD=True, gen_fun=blob, seed=42):  
+def train_d(n, m_list, title='Default', learning_rate=5e-4, 
+            K=10, N=1000, N_epoch=50, print_every=100, batch_size=32, 
+            test_on_new_sample=True, SGD=True, gen_fun=blob, seed=42):  
     #set random seed for torch and numpy
     torch.manual_seed(seed)
     np.random.seed(seed)
