@@ -77,6 +77,7 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
     return mmd2, varEst, Kxyxy
 
 def MMD_LFI_SQUARE(Kx, Ky, Kyz, Kxz, batch_n, batch_m, one_sample_U=False):
+    """return MMD(X,Z)²- MMD(Y,Z)²"""
     nx = batch_n
     nz = batch_m
     if one_sample_U:
@@ -94,8 +95,12 @@ def MMD_LFI_SQUARE(Kx, Ky, Kyz, Kxz, batch_n, batch_m, one_sample_U=False):
         mmd2 = xx - yy + 2* xz - 2* yz
     return mmd2
 
+##### 
 def MMD_LFI_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1, cst=1.0):
     """computes the MMD squared statistics."""
+    """Fea_org is not used."""
+    """Fea.shape[0] = 2*batch_n + batch_m"""
+    """k(x,y) = cst * exp(-||ϕ(x)-ϕ(y)||² / sigma)"""
     X=Fea[0:batch_n, :] #has shape batch_n x out
     Y=Fea[batch_n: 2*batch_n, :] #has shape batch_n x out
     Z=Fea[2*batch_n:, :] #has shape batch_m x out
@@ -107,7 +112,7 @@ def MMD_LFI_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1, cst=1.0):
     Ky = cst * torch.exp(-Dyy / sigma)
     Kxz = cst * torch.exp(-Dxz / sigma) #has shape batch_n x batch_m
     Kyz = cst * torch.exp(-Dyz / sigma)
-    sq=MMD_LFI_SQUARE(Kx, Ky, Kyz, Kxz, batch_n, batch_m)
+    sq = MMD_LFI_SQUARE(Kx, Ky, Kyz, Kxz, batch_n, batch_m)
     return sq, MMD_LFI_VAR(Kx, Ky, Kyz, Kxz, batch_n, batch_m, sq)
 
 def MMD_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1, cst=1.0):
@@ -124,15 +129,19 @@ def MMD_STAT(Fea, Fea_org, batch_n, batch_m, sigma=0.1, cst=1.0):
 def MMD_LFI_VAR(Kx, Ky, Kyz, Kxz, batch_n, batch_m, mean_H):
     '''computes the MMD squared variance.'''
     #One is suppose to set off some biased sample mean/variance estimate or something (i.e. /n vs /(n-1)) but I'm not sure how to do that here
-    #H_{ijk}=Kx[i:j]-Ky[i:j]-2*Kyz[i:k]+2*Kxz[i:k]-mean_H and has expectation 0
-    #V_mn=average of H_{ijk}*H_{ilk} over all i, j, k, l
-    #V_nn=average of H_{ijk}*H_{ijl} over all i, j, k, l
+    #H_{ijk}=Kx[i,j]-Ky[i,j]-2*Kyz[i,k]+2*Kxz[i,k]-mean_H and has expectation 0
+    #V_mn=average of H_{ijk}*H_{ilk} over all i, j, k, l, i.e. EH_{121}*H_{131}
+    #V_nn=average of H_{ijk}*H_{ijl} over all i, j, k, l, i.e. EH_{121}*H_{122}
     #V_mn=H_{010}*H_{020}+H_{341}*H_{351}+H_{672}*H_{682}+...
     #V_nn=H_{010}*H_{011}+H_{232}*H_{233}+H_{343}*H_{344}+...
     one_samp=int(min(batch_n/3, batch_m))-1
     nn_samp=int((batch_m-1)/2)
-    V_mn= sum([(Kx[3*i, 3*i+1]-Ky[3*i, 3*i+1]-2*Kyz[3*i,i]+2*Kxz[3*i,i]-mean_H)*(Kx[3*i, 3*i+2]-Ky[3*i, 3*i+2]-2*Kyz[3*i,i]+2*Kxz[3*i,i]-mean_H) for i in range(one_samp)])/one_samp
-    V_nn= sum([(Kx[2*i, 2*i+1]-Ky[2*i, 2*i+1]-2*Kyz[2*i,2*i]+2*Kxz[2*i,2*i]-mean_H)*(Kx[2*i, 2*i+1]-Ky[2*i, 2*i+1]-2*Kyz[2*i,2*i+1]+2*Kxz[2*i,2*i+1]-mean_H) for i in range(nn_samp)])/nn_samp
+    V_mn= sum([ (Kx[3*i, 3*i+1] - Ky[3*i, 3*i+1] - 2*Kyz[3*i,i] + 2*Kxz[3*i,i] - mean_H)
+               *(Kx[3*i, 3*i+2] - Ky[3*i, 3*i+2] - 2*Kyz[3*i,i] + 2*Kxz[3*i,i] - mean_H) 
+                 for i in range(one_samp)])/one_samp
+    V_nn= sum([ (Kx[2*i, 2*i+1] - Ky[2*i, 2*i+1] - 2*Kyz[2*i,2*i] + 2*Kxz[2*i,2*i] - mean_H)
+               *(Kx[2*i, 2*i+1] - Ky[2*i, 2*i+1] - 2*Kyz[2*i,2*i+1] + 2*Kxz[2*i,2*i+1] - mean_H) 
+                 for i in range(nn_samp)])/nn_samp
     return 2*V_mn/(batch_n*batch_m)+V_nn/(batch_n*batch_n)
 
 def MMD_General(Fea, n, m, Fea_org, sigma=0.1, cst=1.0):

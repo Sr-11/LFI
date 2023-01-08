@@ -45,8 +45,10 @@ def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
     return MMD_General(Fea, n, S, sigma, sigma0_u, ep)
 
 def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoch=50, 
-            print_every=100, batch_size=32, test_on_new_sample=True, SGD=True, gen_fun=blob):  
-    
+            print_every=100, batch_size=32, test_on_new_sample=True, SGD=True, gen_fun=blob, seed=42):  
+    #set random seed for torch and numpy
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     torch.backends.cudnn.deterministic = True
     dtype = torch.float
     device = torch.device("cuda:0")
@@ -74,6 +76,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4, K=10, N=1000, N_epoc
                 'SGD':SGD,
                 'gen_fun':gen_fun(-1),
                 'K':K,
+                'seed' : seed,
                 'N':N,}
     with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
         pickle.dump(parameters, pickle_file)
@@ -186,6 +189,7 @@ def train_O(n_list, m_list):
 if __name__ == "__main__":
     n=500
     m_list = 10*np.array(range(4,5))
+    random_seed=42
     try:
         title=sys.argv[1]
     except:
@@ -204,10 +208,9 @@ if __name__ == "__main__":
             np.random.shuffle(dataset_Q)
             Ys = dataset_Q[:n]
             return Xs, Ys
-
-    train_d(n, m_list, title=title, learning_rate=5e-4, K=10, N=1000, 
-            N_epoch=1, print_every=100, batch_size=32, test_on_new_sample=True, 
-            SGD=True, gen_fun=blob)
+    train_d(n, m_list, title=title, learning_rate=5e-4, K=100, N=1000, 
+            N_epoch=1, print_every=100, batch_size=32, test_on_new_sample=False, 
+            SGD=True, gen_fun=blob, seed=random_seed)
     # n: size of X, Y
     # m: size of Z
     # K: number of experiments, each with different X, Y
