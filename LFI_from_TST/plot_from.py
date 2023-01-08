@@ -8,10 +8,13 @@ def plot(result, params):
     assert len(result) == 2
     for i in range(2):
         pl=[]
-        for m in params['m_list']:
-            arr=result[i,:,m]
+        for l in range(len(params['m_list'])):
+            m=params['m_list'][l]
+            print(result.shape)
+            arr=result[i][:][l]
             pl.append(np.mean(arr))
         plt.plot(pl)
+        print(pl)
         plt.legend('Type '+str(i))
     plt.xlabel('m')
     plt.ylabel('Probability of success')
