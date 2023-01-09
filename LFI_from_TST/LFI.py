@@ -46,14 +46,14 @@ class ConvNet_CIFAR10(nn.Module):
                 block.append(nn.BatchNorm2d(out_filters, 0.8))
             return block
         self.model = nn.Sequential(
-            nn.Unflatten(1,(3,64,64)),
+            nn.Unflatten(1,(3,32,32)),
             *discriminator_block(3, 16, bn=False),
             *discriminator_block(16, 32),
             *discriminator_block(32, 64),
             *discriminator_block(64, 128),
         )
         # The height and width of downsampled image
-        ds_size = 64 // 2 ** 4
+        ds_size = 32 // 2 ** 4
         self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 300))
     def forward(self, img):
         out = self.model(img)
@@ -146,7 +146,9 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
         sigma0OPT.requires_grad = True
         eps=MatConvert(np.zeros((1,)), device, dtype)
         eps.requires_grad = True
-        optimizer_u = torch.optim.Adam(list(model_u.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps], lr=learning_rate)
+        cst=MatConvert(np.zeros((1,)), device, dtype)
+        cst.requires_grad = True
+        optimizer_u = torch.optim.Adam(list(model_u.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps]+[cst], lr=learning_rate)
 
         for t in range(N_epoch):
             # Compute epsilon, sigma and sigma_0
@@ -157,9 +159,9 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                 S=total_S[ind]
                 modelu_output = model_u(S)
                 TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep)
-                mmd_val=-1 * TEMP[0]
-                mmd_var=TEMP[1]
-                STAT_u=crit(mmd_val, mmd_var)
+                mmd_val = -1 * TEMP[0]
+                mmd_var = TEMP[1]
+                STAT_u = crit(mmd_val, mmd_var) * cst
                 J_star_u[kk, t] = STAT_u.item()
                 optimizer_u.zero_grad()
                 STAT_u.backward(retain_graph=True)
@@ -221,7 +223,7 @@ def train_O(n_list, m_list):
     pass
 
 if __name__ == "__main__":
-    n=500
+    n = 500
     m_list = 10*np.array(range(4,5))
     random_seed=42
     try:
@@ -237,14 +239,14 @@ if __name__ == "__main__":
         def diffusion_cifar10(n):
             if n <0 :
                 return 'DIFFUSION'            
-            np.random.shuffle(dataset_P)
-            Xs = dataset_P[:n]
-            np.random.shuffle(dataset_Q)
-            Ys = dataset_Q[:n]
+            #np.random.shuffle(dataset_P)
+            Xs = dataset_P[np.random.choice(dataset_P.shape[0], n)]
+            #np.random.shuffle(dataset_Q)
+            Ys = dataset_Q[np.random.choice(dataset_Q.shape[0], n)]
             return Xs, Ys
     train_d(n, m_list, title=title, learning_rate=5e-4, K=100, N=1000, 
             N_epoch=1, print_every=100, batch_size=32, test_on_new_sample=False, 
-            SGD=True, gen_fun=blob, seed=random_seed)
+            SGD=True, gen_fun=diffusion_cifar10, seed=random_seed)
     # n: size of X, Y
     # m: size of Z
     # K: number of experiments, each with different X, Y

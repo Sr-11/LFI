@@ -177,11 +177,11 @@ def train_d(n_list, m_list, title='Default', learning_rate=5e-4,
     for i in range(len(n_list)):
         n = n_list[i]
         m = m_list[i]
-        print("##### Starting n=%d and m=%d #####"%(n, m))
-        print("##### True n=%d and m=%d #####"%(n_list_rounded[i], m_list_rounded[i]))
+        print("----- Starting n=%d and m=%d -----"%(n, m))
+        print("----- True n=%d and m=%d -----"%(n_list_rounded[i], m_list_rounded[i]))
 
-        print("##### Starting N_epoch=%d epochs #####"%(N_epoch))
-        print("##### K=%d big trials, N=%d tests per trial for inference of Z. #####"%(K,N))
+        print("----- Starting N_epoch=%d epochs -----"%(N_epoch))
+        print("----- K=%d big trials, N=%d tests per trial for inference of Z. -----"%(K,N))
         Results = np.zeros([2, K])
         J_star_u = np.zeros([K, N_epoch])
 
@@ -196,7 +196,7 @@ def train_d(n_list, m_list, title='Default', learning_rate=5e-4,
             batch_m=m//batches
 
         for kk in range(K):
-            print("### Start %d of %d ###"%(kk,K))
+            print("### Starting %d of %d ###"%(kk,K))
 
             # Generate data
             X, Y = gen_fun(n)
@@ -241,7 +241,7 @@ def train_d(n_list, m_list, title='Default', learning_rate=5e-4,
                 # Print MMD, std of MMD and J
                 if t % print_every == 0:
                     print('Epoch:', t)
-                    print("Statistic J: ", -1 * STAT_u.item())
+                    print("Objective: ", -1 * STAT_u.item())
             '''
             #testing overfitting
             print('TEST OVERFITTING:')            
@@ -252,7 +252,7 @@ def train_d(n_list, m_list, title='Default', learning_rate=5e-4,
             H_u = np.zeros(N) 
             H_v = np.zeros(N) 
             print("Under this trained kernel, we run N = %d times LFI: "%N)
-            print("start testing m = %d"%m)
+            print("start testing (n,m) = (%d,%d)"%(n,m))
             for k in range(N):    
                 if test_on_new_sample:
                     X, Y = gen_fun(n)   
@@ -276,8 +276,6 @@ def train_d(n_list, m_list, title='Default', learning_rate=5e-4,
         np.save('./data/LFI_'+str(n),Results) 
     ####Plotting    
     #LFI_plot(n_list_rounded, title=title)
-
-
 
 if __name__ == "__main__":
     n_list = 10*np.array(range(12,13)) # number of samples in per mode
