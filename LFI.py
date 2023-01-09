@@ -258,12 +258,13 @@ def train_d(n_list, m_list, title='Default', learning_rate=5e-4,
                     X, Y = gen_fun(n)   
                 Z1, Z2 = gen_fun(m)
                 #t = time.time()
+                sgn=1 if cst>0 else -1
                 mmd_XZ = mmdG(X, Z1, model_u, n, m, sigma, cst, device, dtype)[0]
                 mmd_YZ = mmdG(Y, Z1, model_u, n, m, sigma, cst, device, dtype)[0]
-                H_u[k] = mmd_XZ<mmd_YZ    
+                H_u[k] = sgn*mmd_XZ<sgn*mmd_YZ    
                 mmd_XZ = mmdG(X, Z2, model_u, n, m, sigma, cst, device, dtype)[0]
                 mmd_YZ = mmdG(Y, Z2, model_u, n, m, sigma, cst, device, dtype)[0]
-                H_v[k] = mmd_XZ>mmd_YZ
+                H_v[k] = sgn*mmd_XZ>sgn*mmd_YZ
                 #print(time.time() - t,'gen')
 
             Results[0, kk] = H_u.sum() / float(N)
