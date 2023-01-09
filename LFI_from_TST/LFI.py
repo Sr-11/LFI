@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 import pickle
 from Data_gen import *
 import torch.nn as nn
+import time
 
 class ModelLatentF(torch.nn.Module):
     """Latent space for both domains."""
@@ -30,10 +31,10 @@ class ModelLatentF(torch.nn.Module):
         return fealant
 
 # Note: in DK_TST, they first interpolate CIFAR10 from 32x32 to 64x64
-# Here input should be (N,3x64x64), dim=3*64*64 
+# Here input should be (N,3x32x32), dim=3*32*32 
 class ConvNet_CIFAR10(nn.Module):
     """
-    input: (N,3x64x64)
+    input: (N,3x32x32)
     output: (N,300)
     """
     def __init__(self):
@@ -53,13 +54,14 @@ class ConvNet_CIFAR10(nn.Module):
             *discriminator_block(64, 128),
         )
         # The height and width of downsampled image
-        ds_size = 32 // 2 ** 4
+        ds_size = 32 // 2 ** 4 # for 64*64 image, set ds_size = 64 // 2 ** 4
         self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size ** 2, 300))
     def forward(self, img):
         out = self.model(img)
         out = out.view(out.shape[0], -1)
         feature = self.adv_layer(out)
         return feature
+    
 
 def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
     """compute the criterion."""
@@ -137,7 +139,10 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                     Y[i*batch_size:i*batch_size+batch_size]) 
                     for i in range(batches)]
         total_S=[MatConvert(np.concatenate((X, Y), axis=0), device, dtype) for (X, Y) in total_S]
-        model_u = ModelLatentF(x_in, H, x_out).cuda()
+        if gen_fun==blob:
+            model_u = ModelLatentF(x_in, H, x_out).cuda()
+        elif gen_fun==diffusion_cifar10:
+            model_u = ConvNet_CIFAR10().cuda()
         epsilonOPT = MatConvert(np.random.rand(1) * (10 ** (-10)), device, dtype)
         epsilonOPT.requires_grad = True
         sigmaOPT = MatConvert(np.sqrt(np.random.rand(1) * 0.3), device, dtype)
@@ -157,11 +162,11 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                 sigma = sigmaOPT ** 2
                 sigma0_u = sigma0OPT ** 2
                 S=total_S[ind]
-                modelu_output = model_u(S)
+                modelu_output = model_u(S) * cst
                 TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep)
                 mmd_val = -1 * TEMP[0]
                 mmd_var = TEMP[1]
-                STAT_u = crit(mmd_val, mmd_var) * cst
+                STAT_u = crit(mmd_val, mmd_var) 
                 J_star_u[kk, t] = STAT_u.item()
                 optimizer_u.zero_grad()
                 STAT_u.backward(retain_graph=True)
@@ -172,7 +177,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                 print('Epoch:', t)
                 print("mmd_value: ", mmd_val.item()) 
                         #"mmd_std: ", mmd_std_temp.item(), 
-                print("Statistic J: ", STAT_u.item())
+                print("Objective: ", STAT_u.item())
                 print('------------------------------------')
         ep_OPT[kk] = ep.item()
         s_OPT[kk] = sigma.item()
@@ -184,13 +189,13 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
         with torch.torch.no_grad():
             S1 = np.concatenate((X1, Y1), axis=0)
             S1 = MatConvert(S1, device, dtype)
-            modelu_output = model_u(S1)
+            modelu_output = model_u(S1)* cst
             TEMP = MMDu(modelu_output, n, S1, sigma, sigma0_u, ep)
             mmd_value_temp, mmd_var_temp = TEMP[0], TEMP[1]
             STAT_u = crit(mmd_value_temp, mmd_var_temp)
             if True:
                 print("TEST mmd_value: ", mmd_value_temp.item()) 
-                print("TEST Statistic J: ", STAT_u.item())
+                print("TEST Objective: ", STAT_u.item())
                 
         H_u = np.zeros(N) 
         H_v = np.zeros(N)
@@ -200,8 +205,10 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
         for i in range(len(m_list)):
             print("start testing m = %d"%m_list[i])
             m = m_list[i]
-            for k in range(N):       
+            for k in range(N):     
+                #t=time.time()  
                 Z1, Z2 = gen_fun(m)
+                #print(time.time()-t)
                 mmd_XZ = mmdG(X, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                 mmd_YZ = mmdG(Y, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
                 H_u[k] = mmd_XZ<mmd_YZ    
@@ -244,8 +251,11 @@ if __name__ == "__main__":
             #np.random.shuffle(dataset_Q)
             Ys = dataset_Q[np.random.choice(dataset_Q.shape[0], n)]
             return Xs, Ys
-    train_d(n, m_list, title=title, learning_rate=5e-4, K=100, N=1000, 
-            N_epoch=1, print_every=100, batch_size=32, test_on_new_sample=False, 
+    
+    # To avoid bug please set:
+    # n % batch_size == 0
+    train_d(500, [50], title=title, learning_rate=5e-4, K=10, N=100, 
+            N_epoch=100, print_every=20, batch_size=10, test_on_new_sample=True, 
             SGD=True, gen_fun=diffusion_cifar10, seed=random_seed)
     # n: size of X, Y
     # m: size of Z
