@@ -62,7 +62,6 @@ class ConvNet_CIFAR10(nn.Module):
         feature = self.adv_layer(out)
         return feature
     
-
 def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
     """compute the criterion."""
     ######IMPORTANT: if we want to maximize, need to multiply by -1######
@@ -151,7 +150,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
         sigma0OPT.requires_grad = True
         eps=MatConvert(np.zeros((1,)), device, dtype)
         eps.requires_grad = True
-        cst=MatConvert(np.zeros((1,)), device, dtype)
+        cst=MatConvert(np.ones((1,)), device, dtype) # set to 1 to meet liu etal objective
         cst.requires_grad = True
         optimizer_u = torch.optim.Adam(list(model_u.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps]+[cst], lr=learning_rate)
 
@@ -162,8 +161,8 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                 sigma = sigmaOPT ** 2
                 sigma0_u = sigma0OPT ** 2
                 S=total_S[ind]
-                modelu_output = model_u(S) * cst
-                TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep)
+                modelu_output = model_u(S) 
+                TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep, cst)
                 mmd_val = -1 * TEMP[0]
                 mmd_var = TEMP[1]
                 STAT_u = crit(mmd_val, mmd_var) 
@@ -178,6 +177,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                 print("mmd_value: ", mmd_val.item()) 
                         #"mmd_std: ", mmd_std_temp.item(), 
                 print("Objective: ", STAT_u.item())
+                print(cst)
                 print('------------------------------------')
         ep_OPT[kk] = ep.item()
         s_OPT[kk] = sigma.item()
@@ -189,8 +189,8 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
         with torch.torch.no_grad():
             S1 = np.concatenate((X1, Y1), axis=0)
             S1 = MatConvert(S1, device, dtype)
-            modelu_output = model_u(S1)* cst
-            TEMP = MMDu(modelu_output, n, S1, sigma, sigma0_u, ep)
+            modelu_output = model_u(S1)
+            TEMP = MMDu(modelu_output, n, S1, sigma, sigma0_u, ep, cst)
             mmd_value_temp, mmd_var_temp = TEMP[0], TEMP[1]
             STAT_u = crit(mmd_value_temp, mmd_var_temp)
             if True:
@@ -208,13 +208,14 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
             for k in range(N):     
                 #t=time.time()  
                 Z1, Z2 = gen_fun(m)
+                print(cst)
                 #print(time.time()-t)
-                mmd_XZ = mmdG(X, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
-                mmd_YZ = mmdG(Y, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
-                H_u[k] = mmd_XZ<mmd_YZ    
-                mmd_XZ = mmdG(X, Z2, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
-                mmd_YZ = mmdG(Y, Z2, model_u, n, sigma, sigma0_u, device, dtype, ep)[0]
-                H_v[k] = mmd_XZ>mmd_YZ
+                mmd_XZ = mmdG(X, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                mmd_YZ = mmdG(Y, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                H_u[k] = mmd_XZ < mmd_YZ    
+                mmd_XZ = mmdG(X, Z2, model_u, n, sigma, sigma0_u, device, dtype, ep)[0] * cst 
+                mmd_YZ = mmdG(Y, Z2, model_u, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                H_v[k] = mmd_XZ > mmd_YZ
             print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", H_u.sum()/N_f)
             print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", H_v.sum()/N_f)
             Results[0, kk, i] = H_u.sum() / N_f
@@ -254,7 +255,7 @@ if __name__ == "__main__":
     
     # To avoid bug please set:
     # n % batch_size == 0
-    train_d(500, [50], title=title, learning_rate=5e-4, K=10, N=100, 
+    train_d(50, [50], title=title, learning_rate=5e-4, K=10, N=100, 
             N_epoch=100, print_every=20, batch_size=10, test_on_new_sample=True, 
             SGD=True, gen_fun=diffusion_cifar10, seed=random_seed)
     # n: size of X, Y
