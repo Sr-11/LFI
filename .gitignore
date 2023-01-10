@@ -8,3 +8,4 @@ Diffusion/ddpm_generated_images_large.npy
 Higgs/HIGGS.csv.gz
 Higgs/HIGGS.npy
 Higgs/checkpoint/
+*.pt
