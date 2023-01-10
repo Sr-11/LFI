@@ -88,20 +88,10 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
     else:
         batches=1+(n-1)//batch_size
         n=batches*batch_size #round up n to be divisible by batch_size
-    parameters={'n':n, 
-                'm_list':m_list, 
-                'N_epoch':N_epoch, 
-                'learning_rate':learning_rate, 
-                'batch_size':batch_size,
-                'batches':batches, 
-                'test_on_new_sample':test_on_new_sample, 
-                'SGD':SGD, 
-                'gen_fun':gen_fun(-1), 
-                'K':K, 
-                'seed' : seed,
-                'N':N,}
-    #with open('./data/LFI_CIFAR_PARAMETERS_'+title, 'wb') as pickle_file:
-    #    pickle.dump(parameters, pickle_file)
+    parameters={'n':n, 'm_list':m_list, 'N_epoch':N_epoch, 'learning_rate':learning_rate, 'batch_size':batch_size,
+                'batches':batches, 'test_on_new_sample':test_on_new_sample, 'SGD':SGD, 'gen_fun':gen_fun(-1), 'K':K, 'seed' : seed,'N':N,}
+    with open('./data/LFI_CIFAR_PARAMETERS_'+title, 'wb') as pickle_file:
+        pickle.dump(parameters, pickle_file)
     print("##### Starting N_epoch=%d epochs per data trial #####"%(N_epoch))
     print("##### K=%d independent kernels, N=%d tests per trial for inference of Z per m. #####"%(K,N))
     if test_on_new_sample:

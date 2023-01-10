@@ -60,6 +60,8 @@ def load_diffusion_cifar():
     for i in range(50000):
         cifar10[i] = np.asarray(trainset[i][0])
 
+    diffusion = diffusion.transpose(0,3,1,2)
+    cifar10 = cifar10.transpose(0,3,1,2)
     dataset_P = diffusion.reshape(diffusion.shape[0], -1)
     dataset_Q = cifar10.reshape(cifar10.shape[0], -1)
     return dataset_P, dataset_Q
