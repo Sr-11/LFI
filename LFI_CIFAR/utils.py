@@ -115,7 +115,6 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
         Kx = cst*torch.exp(-Dxx / sigma0)
         Ky = cst*torch.exp(-Dyy / sigma0)
         Kxy = cst*torch.exp(-Dxy / sigma0)
-
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
 def MMDs(Fea, batch_n, Fea_org, sigma, cst, is_var_computed=True, use_1sample_U=True):

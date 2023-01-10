@@ -11,7 +11,7 @@ import cProfile
 import os
 from GPUtil import showUtilization as gpu_usage
 from numba import cuda
-
+from tqdm import tqdm, trange
 """
 We selected a five-layer neural network with 300 hidden units in each layer, 
 a learning rate of 0.05, and a weight decay coefficient of 1e-5.
@@ -29,23 +29,7 @@ class DN(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(300, 300, bias=True),
             torch.nn.ReLU(),
-            torch.nn.Linear(300, 20, bias=True),
-        )
-    def forward(self, input):
-        output = self.model(input)
-        return output
-class DN(torch.nn.Module):
-    def __init__(self):
-        super(DN, self).__init__()
-        self.restored = False
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(28, 20, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(20, 20, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(20, 20, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(20, 20, bias=True),
+            torch.nn.Linear(300, 300, bias=True),
         )
     def forward(self, input):
         output = self.model(input)
@@ -54,10 +38,10 @@ class DN(torch.nn.Module):
 def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
     """compute the criterion, liu or Sharpe"""
     ######IMPORTANT: if we want to maximize, need to multiply by -1######
-    return mmd_val - mmd_var
-    # if liuetal:
-    #     mmd_std_temp = torch.sqrt(mmd_var+10**(-8)) #this is std
-    #     return torch.div(mmd_val, mmd_std_temp)
+    #return mmd_val + mmd_var
+    if liuetal:
+        mmd_std_temp = torch.sqrt(mmd_var+10**(-8)) #this is std
+        return torch.div(mmd_val, mmd_std_temp)
     # elif Sharpe:
     #     return mmd_val - 2.0 * mmd_var
 
@@ -82,8 +66,9 @@ def save_model(model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
     torch.save(eps, path+'eps.pt')
     torch.save(cst, path+'cst.pt')
 
-def load_model(model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
+def load_model(epoch=0):
     path = './checkpoint/'+str(epoch)+'/'
+    model = DN().cuda()
     model.load_state_dict(torch.load(path+'model.pt'))
     epsilonOPT = torch.load(path+'epsilonOPT.pt')
     sigmaOPT = torch.load(path+'sigmaOPT.pt')
@@ -92,9 +77,114 @@ def load_model(model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
     cst = torch.load(path+'cst.pt')
     return model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst
 
+# run_saved_model(3000,500)
+def run_saved_model(n, epoch=0):
+    n = 2500
+    print('n =',n)
+
+    device = torch.device("cuda:0")
+    dtype = torch.float32
+
+    model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst = load_model(epoch)
+    model.eval()
+    ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
+    sigma = sigmaOPT ** 2
+    sigma0_u = sigma0OPT ** 2
+    print('cst',cst)
+    ''''''''''''''''''
+    ''''''''''''''''''
+    X1= dataset_P[n:2*n]
+    Y1= dataset_Q[n:2*n]
+    # testing how model behaves on untrained data
+    # print test MMD, MMD_var and J
+    print('CRITERION ON NEW SET OF DATA:')            
+    with torch.torch.no_grad():
+        S1 = np.concatenate((X1, Y1), axis=0)
+        S1 = MatConvert(S1, device, dtype)
+        modelu_output = model(S1)
+        TEMP = MMDu(modelu_output, n, S1, sigma, sigma0_u, ep, cst)
+        mmd_value_temp, mmd_var_temp = TEMP[0], TEMP[1]
+        STAT_u = crit(mmd_value_temp, mmd_var_temp)
+        if True:
+            print("TEST mmd_value: ", mmd_value_temp.item()) 
+            print("TEST Objective: ", STAT_u.item())
+
+
+    m_list=[1000]
+    K=1
+    N=100
+    kk=0
+    # generate Z, calculate P(success|Z~X,Y)
+    H_x = np.zeros(N) 
+    H_y = np.zeros(N)
+    print("Under this trained kernel, we run N = %d times LFI: "%N)
+    # run through all m do LFI
+    Results = np.zeros([2, K, len(m_list)]) ###Result[{0, 1}, K, m] where K is an index
+    for i in range(len(m_list)):
+        m = m_list[i]
+        print("start testing m = %d"%m)
+        for k in range(N):     
+            #t=time.time()  
+            Z1, Z2 = gen_fun(m)
+            #print(cst)
+            #print(time.time()-t)
+            with torch.torch.no_grad():
+                mmd_XZ = mmdG(X1, Z1, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                mmd_YZ = mmdG(Y1, Z1, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                H_x[k] = mmd_XZ < mmd_YZ    
+                mmd_XZ = mmdG(X1, Z2, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst 
+                mmd_YZ = mmdG(Y1, Z2, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                H_y[k] = mmd_XZ > mmd_YZ
+        Results[0, kk, i] = H_x.sum() / float(N)
+        Results[1, kk, i] = H_y.sum() / float(N)
+        print('------------------------------------------')
+        print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", Results[0, kk, i])
+        print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", Results[1, kk, i])
+        print('------------------------------------------')
+    
+    ''''''''''''''''''
+    ''''''''''''''''''
+    # compute #sigma
+    print('-------------------sigma--------------------')
+    gpu_usage()                             
+    X, Y = X1, Y1
+
+    # compute mean and variance
+    samples = np.zeros(1000)
+    M = 100 # evaluate the mean and variance of T~H0
+    with torch.torch.no_grad():                           
+        for ii in trange(M):
+            Z0 = dataset_P[np.random.choice(dataset_P.shape[0], 1100)]
+            mmd_PZ = mmdG(X, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            mmd_QZ = mmdG(Y, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            samples[ii] = mmd_QZ-mmd_PZ 
+    mean = np.mean(samples)
+    var = np.var(samples)*M/(M-1)
+
+    pval_list = np.zeros(N)
+    for k in range(N):
+        background_events = dataset_P[np.random.choice(dataset_P.shape[0], 1000)]
+        signal_events = dataset_Q[np.random.choice(dataset_Q.shape[0], 100)]
+        Z = np.concatenate((signal_events, background_events), axis=0)
+        with torch.torch.no_grad():     
+            mmd_PZ = mmdG(X, Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            mmd_QZ = mmdG(Y, Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            T = mmd_QZ-mmd_PZ # test statistic
+        pval_list[k] = -(T-mean)/np.sqrt(var) # p-value is in #sigma
+
+    p_value = np.mean(pval_list)
+    p_value_var = np.var(pval_list)
+    print('----------------------------------')
+    print('p-value = ({}-{})/{}'.format(T.item(),mean,np.sqrt(var)))
+    print('p_value =', p_value)
+    print('p_value_var =', p_value_var)
+    print('----------------------------------')
+        
 def train(n, m_list, title='Default', learning_rate=5e-4, 
             K=10, N=1000, N_epoch=50, print_every=100, batch_size=32, 
-            test_on_new_sample=True, SGD=True, gen_fun=None, seed=42):  
+            test_on_new_sample=True, SGD=True, gen_fun=None, seed=42,
+            dataset_P=None, dataset_Q=None,
+            load_epoch=0):  
     #set random seed for torch and numpy
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -151,8 +241,23 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
 
     for kk in range(K):
     # start a new kernel
+        # generate data
+        #X, Y = gen_fun(n)
+        # print(dataset_P.shape)
+        # print(n)
+        # indexes1 = np.random.choice(dataset_P.shape[0], n, replace=False)
+        # indexes2 = np.random.choice(dataset_Q.shape[0], n, replace=False)
+        # indexes3 = np.random.choice(np.setdiff1d(np.arange(dataset_P.shape[0]),indexes1), n, replace=False)
+        # indexes4 = np.random.choice(np.setdiff1d(np.arange(dataset_Q.shape[0]),indexes2), n, replace=False)
+        # X = dataset_P[indexes1]
+        # Y = dataset_Q[indexes2]
+        # X1= dataset_P[indexes3]
+        # Y1= dataset_Q[indexes4]
+        X = dataset_P[0:n]
+        Y = dataset_Q[0:n]
+        X1= dataset_P[n:2*n]
+        Y1= dataset_Q[n:2*n]
         # prepare training data
-        X, Y = gen_fun(n)
         total_S = [(X[i*batch_size:(i+1)*batch_size], 
                   Y[i*batch_size:(i+1)*batch_size]) 
                   for i in range(batches)]
@@ -168,11 +273,16 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
         sigma0OPT.requires_grad = True
         eps=MatConvert(np.zeros((1,)), device, dtype)
         eps.requires_grad = True
-        cst=MatConvert(np.ones((1,)), device, dtype) # set to 1 to meet liu etal objective
+        cst=MatConvert(1*np.ones((1,)), device, dtype) # set to 1 to meet liu etal objective
         cst.requires_grad = True
         # prepare optimizer
         optimizer_u = torch.optim.Adam(list(model.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps]+[cst], lr=learning_rate)
         begin_time = time.time()
+        # validation data
+        S1 = np.concatenate((X1, Y1), axis=0)
+        S1 = MatConvert(S1, device, dtype)
+        J_validations = np.zeros([N_epoch])
+        mmd_val_validations = np.zeros([N_epoch])
         for t in range(N_epoch):
             for ind in range(batches):
                 # calculate parameters
@@ -224,6 +334,16 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
             
             # Print MMD, std of MMD and J
             if t % print_every == 0:
+                #validation
+                # with torch.torch.no_grad():
+                #     modelu_output = model(S1)
+                #     TEMP = MMDu(modelu_output, n, S1, sigma, sigma0_u, ep, cst)
+                #     mmd_value_temp, mmd_var_temp = -TEMP[0], TEMP[1]
+                #     mmd_val_validations[t] = mmd_value_temp.item()
+                #     J_validations[t] = crit(mmd_value_temp, mmd_var_temp).item()
+                # # print
+                # print("TEST mmd_value: ", mmd_value_temp.item()) 
+                # print("TEST Objective: ", STAT_u.item())
                 time_per_epoch = (time.time() - begin_time)/print_every
                 print('------------------------------------')
                 print('Epoch:', t)
@@ -231,34 +351,49 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
                 print("mmd_var: ", mmd_var.item())
                 print("Objective: ", STAT_u.item())
                 print("time_per_epoch: ", time_per_epoch)
-                #print(cst)
+                print('cst', cst.item())
                 print('------------------------------------')
                 begin_time = time.time()
-            if t%1000==0:
+            if t%500==0:
                 save_model(model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,t)
         
         plt.plot(range(N_epoch), J_star_u[kk, :], label='J')
         plt.plot(range(N_epoch), mmd_val_record[kk, :], label='MMD')
+        plt.plot(np.arange(N_epoch)[mmd_val_validations!=0], mmd_val_validations[mmd_val_validations!=0], label='MMD_validation')
+        plt.plot(np.arange(N_epoch)[J_validations!=0] , J_validations[J_validations!=0], label='J_valid')
+        plt.legend()
         plt.savefig('./checkpoint/loss-epoch.png')
         np.save('./checkpoint/J_star_u.npy', J_star_u)
         np.save('./checkpoint/mmd_val_record.npy', mmd_val_record)
         np.save('./checkpoint/mmd_var_record.npy', mmd_var_record)
+        np.save('./checkpoint/mmd_validations.npy', mmd_val_validations)
         ep_OPT[kk] = ep.item()
         s_OPT[kk] = sigma.item()
         s0_OPT[kk] = sigma0_u.item()
-        
+
+        ################## Start test ##################
+        # load model
+        cuda.select_device(0)
+        cuda.close()
+        cuda.select_device(0)
+
+        model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst =load_model(load_epoch) 
+        model.eval()
+        ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
+        sigma = sigmaOPT ** 2
+        sigma0_u = sigma0OPT ** 2
+        print('cst',cst)
         ''''''''''''''''''
         ''''''''''''''''''
         # testing how model behaves on untrained data
         # print test MMD, MMD_var and J
         print('CRITERION ON NEW SET OF DATA:')            
-        X1, Y1 = gen_fun(n)
-        
+        #X1, Y1 = gen_fun(n)
         with torch.torch.no_grad():
-            S1 = np.concatenate((X1, Y1), axis=0)
+            S1 = np.concatenate((X1[0:1000], Y1[0:1000]), axis=0)
             S1 = MatConvert(S1, device, dtype)
             modelu_output = model(S1)
-            TEMP = MMDu(modelu_output, n, S1, sigma, sigma0_u, ep, cst)
+            TEMP = MMDu(modelu_output, 1000, S1, sigma, sigma0_u, ep, cst)
             mmd_value_temp, mmd_var_temp = TEMP[0], TEMP[1]
             STAT_u = crit(mmd_value_temp, mmd_var_temp)
             if True:
@@ -267,63 +402,70 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
     #region
 
         # generate Z, calculate P(success|Z~X,Y)
-        # H_x = np.zeros(N) 
-        # H_y = np.zeros(N)
-        # print("Under this trained kernel, we run N = %d times LFI: "%N)
-        # if test_on_new_sample:
-        #     X, Y = gen_fun(n)
-        # # run through all m do LFI
-        # for i in range(len(m_list)):
-        #     m = m_list[i]
-        #     print("start testing m = %d"%m)
-        #     for k in range(N):     
-        #         #t=time.time()  
-        #         Z1, Z2 = gen_fun(m)
-        #         #print(cst)
-        #         #print(time.time()-t)
-        #         mmd_XZ = mmdG(X, Z1, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-        #         mmd_YZ = mmdG(Y, Z1, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-        #         H_x[k] = mmd_XZ < mmd_YZ    
-        #         mmd_XZ = mmdG(X, Z2, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst 
-        #         mmd_YZ = mmdG(Y, Z2, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-        #         H_y[k] = mmd_XZ > mmd_YZ
-        #     Results[0, kk, i] = H_x.sum() / float(N)
-        #     Results[1, kk, i] = H_y.sum() / float(N)
-        #     print('------------------------------------------')
-        #     print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", Results[0, kk, i])
-        #     print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", Results[1, kk, i])
-        #     print('------------------------------------------')
+        H_x = np.zeros(N) 
+        H_y = np.zeros(N)
+        print("Under this trained kernel, we run N = %d times LFI: "%N)
+        if test_on_new_sample:
+            X, Y = X1, Y1#gen_fun(n)
+        # run through all m do LFI
+        for i in range(len(m_list)):
+            m = m_list[i]
+            print("start testing m = %d"%m)
+            for k in range(N):     
+                #t=time.time()  
+                Z1, Z2 = gen_fun(m)
+                #print(cst)
+                #print(time.time()-t)
+                mmd_XZ = mmdG(X1, Z1, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                mmd_YZ = mmdG(Y1, Z1, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                H_x[k] = mmd_XZ < mmd_YZ    
+                mmd_XZ = mmdG(X1, Z2, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst 
+                mmd_YZ = mmdG(Y1, Z2, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                H_y[k] = mmd_XZ > mmd_YZ
+            Results[0, kk, i] = H_x.sum() / float(N)
+            Results[1, kk, i] = H_y.sum() / float(N)
+            print('------------------------------------------')
+            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~X): ", Results[0, kk, i])
+            print("n, m=",str(n)+str('  ')+str(m),"--- P(success|Z~Y): ", Results[1, kk, i])
+            print('------------------------------------------')
     #endregion
         
         ''''''''''''''''''
         ''''''''''''''''''
         # compute #sigma
         print('-------------------sigma--------------------')
-        gpu_usage()                             
-        X, Y = gen_fun(n)
-        signal_events = dataset_P[np.random.choice(dataset_P.shape[0], 100)]
-        background_events = dataset_Q[np.random.choice(dataset_Q.shape[0], 1000)]
-        Z = np.concatenate((signal_events, background_events), axis=0)
-        mmd_PZ = mmdG(X, Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-        mmd_QZ = mmdG(Y, Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-        T = mmd_QZ-mmd_PZ # test statistic
+        #gpu_usage()                             
         # compute mean and variance
         samples = np.zeros(1000)
-        #torch.cuda.empty_cache()
-        # cuda.select_device(0)
-        # cuda.close()
-        # cuda.select_device(0)
-        #gpu_usage()  
+        M = 100 # evaluate the mean and variance of T~H0
         with torch.torch.no_grad():                           
-            for ii in range(1000):
+            for ii in trange(M):
                 Z0 = dataset_P[np.random.choice(dataset_P.shape[0], 1100)]
-                mmd_PZ = mmdG(X, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-                mmd_QZ = mmdG(Y, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                mmd_PZ = mmdG(X1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                mmd_QZ = mmdG(Y1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
                 samples[ii] = mmd_QZ-mmd_PZ 
         mean = np.mean(samples)
-        var = np.var(samples)*1000/999
-        p_value = (T-mean)/np.sqrt(var) # p-value is in #sigma
-        print('p-value =', p_value)
+        var = np.var(samples)*M/(M-1)
+
+        pval_list = np.zeros(N)
+        for k in range(N):
+            background_events = dataset_P[np.random.choice(dataset_P.shape[0], 1000)]
+            signal_events = dataset_Q[np.random.choice(dataset_Q.shape[0], 100)]
+            Z = np.concatenate((signal_events, background_events), axis=0)
+            with torch.torch.no_grad():     
+                mmd_PZ = mmdG(X1, Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                mmd_QZ = mmdG(Y1, Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                T = mmd_QZ-mmd_PZ # test statistic
+            pval_list[k] = -(T-mean)/np.sqrt(var) # p-value is in #sigma
+
+        p_value = np.mean(pval_list)
+        p_value_var = np.var(pval_list)
+        print('----------------------------------')
+        print('p-value = ({}-{})/{}'.format(T.item(),mean,np.sqrt(var)))
+        print('p_value =', p_value)
+        print('p_value_var =', p_value_var)
+        print('----------------------------------')
+
     #LFI_plot(n_list, title=title)
 
 if __name__ == "__main__":
@@ -333,47 +475,38 @@ if __name__ == "__main__":
         print('df.shape =', df.shape)
         dataset = df.to_numpy()
     else:
-        dataset = np.load('HIGGS_400000.npy')
+        dataset = np.load('HIGGS.npy')
     print('signal : background =',np.sum(dataset[:,0]),':',dataset.shape[0]-np.sum(dataset[:,0]))
     print('signal :',np.sum(dataset[:,0])/dataset.shape[0]*100,'%')
-
     # split into signal and background
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5829122, 28)
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28)
-
     # define a function to generate data
     def gen_fun(n):
         X = dataset_P[np.random.choice(dataset_P.shape[0], n)]
         Y = dataset_Q[np.random.choice(dataset_Q.shape[0], n)]
         return X, Y
-    
     # set seed
     random_seed = 42
-
     # load title
     try:
         title = sys.argv[1]
     except:
         print("Warning: No title given, using default")
         title = 'untitled_run'
-    # region
-    # data = pickle.load(open('./HIGGS_TST.pckl', 'rb'))
-    # dataX = data[0]
-    # dataY = data[1]
-    # print(dataX.shape, dataY.shape)
-    #endregion
-    # run 
-    n = 10000
+    n = 20000
     m_list = [400] # 不做LFI没有用
     train(n, [50], 
         title = title, 
         K = 1, 
         N = 100, # 不做LFI没有用
-        N_epoch = 10, 
+        N_epoch = 1, # 只load就设成1
         print_every = 10, 
         batch_size = 128, 
-        learning_rate =5e-4, 
-        test_on_new_sample = True, 
+        learning_rate =5e-3, 
+        test_on_new_sample = True, # 不做LFI没有用
         SGD = True, 
         gen_fun = gen_fun, 
-        seed = random_seed)
+        seed = random_seed,
+        dataset_P = dataset_P, dataset_Q = dataset_Q,
+        load_epoch = 500)

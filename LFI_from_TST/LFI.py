@@ -62,14 +62,14 @@ class ConvNet_CIFAR10(nn.Module):
         feature = self.adv_layer(out)
         return feature
     
-def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
+def crit(mmd_val, mmd_var, liuetal=False, Sharpe=True):
     """compute the criterion."""
     ######IMPORTANT: if we want to maximize, need to multiply by -1######
     if liuetal:
         mmd_std_temp = torch.sqrt(mmd_var+10**(-8)) #this is std
         return torch.div(mmd_val, mmd_std_temp)
     elif Sharpe:
-        return mmd_val - 2.0 * mmd_var
+        return mmd_val + 2.0 * mmd_var
 
 def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
     S = np.concatenate((X, Y), axis=0)
@@ -208,7 +208,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
             for k in range(N):     
                 #t=time.time()  
                 Z1, Z2 = gen_fun(m)
-                print(cst)
+                #print(cst)
                 #print(time.time()-t)
                 mmd_XZ = mmdG(X, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
                 mmd_YZ = mmdG(Y, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
@@ -255,9 +255,9 @@ if __name__ == "__main__":
     
     # To avoid bug please set:
     # n % batch_size == 0
-    train_d(50, [50], title=title, learning_rate=5e-4, K=10, N=100, 
+    train_d(500, [50], title=title, learning_rate=5e-4, K=10, N=100, 
             N_epoch=100, print_every=20, batch_size=10, test_on_new_sample=True, 
-            SGD=True, gen_fun=diffusion_cifar10, seed=random_seed)
+            SGD=True, gen_fun=blob, seed=random_seed)
     # n: size of X, Y
     # m: size of Z
     # K: number of experiments, each with different X, Y
