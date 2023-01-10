@@ -85,13 +85,13 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
         mmd2 = xx - 2 * xy + yy
     if not is_var_computed:
         return mmd2, None
-
-    hh = Kx+Ky-Kxy-Kxy.transpose(0,1)
-    V1 = torch.dot(hh.sum(1)/ny,hh.sum(1)/ny) / ny
-    V2 = (hh).sum() / (nx) / nx
+    # H[i,j]=k(x_i,x_j)+k(y_i,y_j)-k(x_i,y_j)-k(y_i,x_j)
+    H = Kx+Ky-Kxy-Kxy.transpose(0,1)
+    V1 = torch.dot(H.sum(1)/ny,H.sum(1)/ny) / ny
+    V2 = (H).sum() / (nx) / nx
     varEst = 4*(V1 - V2**2)
-    if varEst == 0.0:
-        print('error!!'+str(V1))
+    #if varEst == 0.0:
+    #    print('error!!'+str(V1))
     return mmd2, varEst, Kxyxy
 
 def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
