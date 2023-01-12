@@ -35,7 +35,7 @@ class DN(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(H, H, bias=True),
             torch.nn.ReLU(),
-            torch.nn.Linear(H, 300, bias=True),
+            torch.nn.Linear(H, H, bias=True),
         )
     def forward(self, input):
         output = self.model(input)
@@ -100,21 +100,7 @@ def run_saved_model(n, m, epoch=0, N=10):
     X1= dataset_P[n:2*n]
     Y1= dataset_Q[n:2*n]
     # region
-    # testing how model behaves on untrained data
-    # print test MMD, MMD_var and J
-    # print('CRITERION ON NEW SET OF DATA:')            
-    # with torch.torch.no_grad():
-    #     S1 = np.concatenate((X1[0:10000], Y1[0:10000]), axis=0)
-    #     S1 = MatConvert(S1, device, dtype)
-    #     modelu_output = model(S1)
-    #     TEMP = MMDu(modelu_output, n, S1, sigma, sigma0_u, ep, cst)
-    #     mmd_value_temp, mmd_var_temp = TEMP[0], TEMP[1]
-    #     STAT_u = crit(mmd_value_temp, mmd_var_temp)
-    #     if True:
-    #         print("TEST mmd_value: ", mmd_value_temp.item()) 
-    #         print("TEST Objective: ", STAT_u.item())
-    #endregion
-    ########## LFI ##########
+
     print('Test LFI')
     m_list=[m]
     K=1
@@ -210,12 +196,8 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
     device = torch.device("cuda:0")
     #cuda.select_device(0)
     # set SGD
-    if not SGD:
-        batch_size = n
-        batches = 1
-    else:
-        batches = n//batch_size + 1 # last batch could be empty
-        n = batches*batch_size  
+    batches = n//batch_size + 1 # last batch could be empty
+    n = batches*batch_size  
     #region
     # save parameters
     # parameters={'n':n,
@@ -231,7 +213,8 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
     #             'seed' : seed,
     #             'N':N,}
     # with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
-    #     pickle.dump(parameters, pickle_file)
+    #     pickle.dump(parameters, pi
+    # ckle_file)
     # print starting flag
     #endregion 
     print("\n------------------------------------------------")
@@ -257,22 +240,11 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
 
     for kk in range(K):
     # start a new kernel
-        # generate data
-        #X, Y = gen_fun(n)
-        # print(dataset_P.shape)
-        # print(n)
-        # indexes1 = np.random.choice(dataset_P.shape[0], n, replace=False)
-        # indexes2 = np.random.choice(dataset_Q.shape[0], n, replace=False)
-        # indexes3 = np.random.choice(np.setdiff1d(np.arange(dataset_P.shape[0]),indexes1), n, replace=False)
-        # indexes4 = np.random.choice(np.setdiff1d(np.arange(dataset_Q.shape[0]),indexes2), n, replace=False)
-        # X = dataset_P[indexes1]
-        # Y = dataset_Q[indexes2]
-        # X1= dataset_P[indexes3]
-        # Y1= dataset_Q[indexes4]
         X = dataset_P[0:n]
         Y = dataset_Q[0:n]
         X1= dataset_P[n:2*n]
         Y1= dataset_Q[n:2*n]
+        print(X.shape)
         # prepare training data
         total_S = [(X[i*batch_size:(i+1)*batch_size], 
                   Y[i*batch_size:(i+1)*batch_size]) 
@@ -296,39 +268,31 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
             model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst = load_model(load_n, load_epoch)
 
         # prepare optimizer
-        optimizer_u = torch.optim.Adam(list(model.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps]+[cst], lr=learning_rate)
+        if SGD==True:
+            optimizer_u = torch.optim.SGD(list(model.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps]+[cst], lr=learning_rate,
+                                    momentum=0.9)
+        else:
+            optimizer_u = torch.optim.Adam(list(model.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps]+[cst], lr=learning_rate,)
         begin_time = time.time()
 
         # validation data
-        S1_v = np.concatenate((X1[0:1000], Y1[0:1000]), axis=0)
+        S1_v = np.concatenate((X1[0:10000], Y1[0:10000]), axis=0)
+        print("S1_v.shape", X1.shape)
         S1_v = MatConvert(S1_v, device, dtype)
         J_validations = np.zeros([N_epoch])
         mmd_val_validations = np.zeros([N_epoch])
 
         for t in range(N_epoch):
+            print(t)
             for ind in range(batches):
+                optimizer_u.zero_grad()
                 # calculate parameters
                 ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
                 sigma = sigmaOPT ** 2
                 sigma0_u = sigma0OPT ** 2
                 # load training data from S
                 S = total_S[ind]
-    #region
 
-                # Generate Higgs (P,Q)
-                # N1_T = dataX.shape[0]
-                # N2_T = dataY.shape[0]
-                # np.random.seed(seed=1102 * kk + n)
-                # ind1 = np.random.choice(N1_T, n, replace=False)
-                # np.random.seed(seed=819 * kk + n)
-                # ind2 = np.random.choice(N2_T, n, replace=False)
-                # s1 = dataX[ind1,:4]
-                # s2 = dataY[ind2,:4]
-                # N1 = n
-                # N2 = n
-                # S = np.concatenate((s1, s2), axis=0)
-                # S = MatConvert(S, device, dtype)
-    #endregion
                 # input into NN
                 modelu_output = model(S) 
                 # calculate MMD
@@ -337,25 +301,26 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
                 mmd_val = -1 * TEMP[0]
                 mmd_var = TEMP[1]
                 STAT_u = crit(mmd_val, mmd_var) 
-    #region
-                # mmd_value_temp = -1 * (TEMP[0]+10**(-8))  # 10**(-8)
-                # mmd_std_temp = torch.sqrt(TEMP[1]+10**(-8))  # 0.1
-                # if mmd_std_temp.item() == 0:
-                #     print('error!!')
-                # if np.isnan(mmd_std_temp.item()):
-                #     print('error!!')
-                # STAT_u = torch.div(mmd_value_temp, mmd_std_temp)
-    #endregion
+
                 J_star_u[kk, t] = STAT_u.item()
                 mmd_val_record[kk, t] = mmd_val.item()
                 mmd_var_record[kk, t] = mmd_var.item()
                 # update parameters
-                optimizer_u.zero_grad()
                 STAT_u.backward(retain_graph=True)
                 optimizer_u.step()
             
             # Print MMD, std of MMD and J
             if t % print_every == 0:
+                #validation
+                with torch.torch.no_grad():
+                    modelu_output = model(S1_v)
+                    TEMP = MMDu(modelu_output, 10000, S1_v, sigma, sigma0_u, ep, cst)
+                    mmd_value_temp, mmd_var_temp = -TEMP[0], TEMP[1]
+                    mmd_val_validations[t] = mmd_value_temp.item()
+                    J_validations[t] = crit(mmd_value_temp, mmd_var_temp).item()
+                # print
+                print("TEST mmd_value: ", mmd_value_temp.item()) 
+                print("TEST Objective: ", STAT_u.item())
                 time_per_epoch = (time.time() - begin_time)/print_every
                 print('------------------------------------')
                 print('Epoch:', t ,'+',load_epoch)
@@ -366,19 +331,7 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
                 print('cst', cst.item())
                 print('------------------------------------')
                 begin_time = time.time()
-            if t%10==0 and t>0:
                 save_model(n_backup,model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,t+load_epoch)
-                #validation
-                with torch.torch.no_grad():
-                    modelu_output = model(S1_v)
-                    TEMP = MMDu(modelu_output, 1000, S1_v, sigma, sigma0_u, ep, cst)
-                    mmd_value_temp, mmd_var_temp = -TEMP[0], TEMP[1]
-                    mmd_val_validations[t] = mmd_value_temp.item()
-                    J_validations[t] = crit(mmd_value_temp, mmd_var_temp).item()
-                # print
-                print("TEST mmd_value: ", mmd_value_temp.item()) 
-                print("TEST Objective: ", STAT_u.item())
-            if t%10==0:
                 plt.plot(range(t), J_star_u[kk, :][0:t], label='J')
                 plt.plot(range(t), mmd_val_record[kk, 0:t], label='MMD')
                 plt.plot(np.arange(N_epoch)[mmd_val_validations!=0], mmd_val_validations[mmd_val_validations!=0], label='MMD_validation')
@@ -428,10 +381,10 @@ if __name__ == "__main__":
     except:
         print("Warning: No title given, using default")
         title = 'untitled_run'
-        
-    n = 1300000
+    n = 1000000
     m_list = [400] # 不做LFI没有用
     N_epoch = 61
+    print(n)
     if 1:
         train(n, [50], 
         title = title, 
@@ -439,19 +392,20 @@ if __name__ == "__main__":
         N = 100, # 不做LFI没有用
         N_epoch = N_epoch, # 只load就设成1
         print_every = 10, 
-        batch_size = 1024, 
-        learning_rate =5e-4, 
+        batch_size = 512, 
+        learning_rate = 5e-5, 
         test_on_new_sample = True, # 不做LFI没有用
-        SGD = True, 
+        SGD = False, 
         gen_fun = gen_fun, 
         seed = random_seed,
         dataset_P = dataset_P, dataset_Q = dataset_Q,
         load_epoch = 0, load_n=10000)
     else:
-        print('################## Start test ##################')
-        # load model
+        pass
+    print('################## Start test ##################')
+    # load model
     import gc
     gc.collect()
     torch.cuda.empty_cache()
-    run_saved_model(n, 100, 30, N=20)
+    run_saved_model(n, 100, epoch=30, N=20)
     

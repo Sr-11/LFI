@@ -15,9 +15,7 @@ from tqdm import tqdm, trange
 import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="7"  # specify which GPU(s) to be used
-
 H = 300
-out= 300
 class DN(torch.nn.Module):
     def __init__(self):
         super(DN, self).__init__()
@@ -27,13 +25,13 @@ class DN(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(H, H, bias=True),
             torch.nn.ReLU(),
+            #torch.nn.Linear(H, H, bias=True),
+            #torch.nn.ReLU(),
             torch.nn.Linear(H, H, bias=True),
             torch.nn.ReLU(),
             torch.nn.Linear(H, H, bias=True),
             torch.nn.ReLU(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, out, bias=True),
         )
     def forward(self, input):
         output = self.model(input)
@@ -83,11 +81,12 @@ def load_model(n, epoch=0):
     return model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst
 
 # run_saved_model(3000,500)
-def run_saved_model(n, m, epoch=0, N=10, new=False):
+def run_saved_model(n, m, epoch=0, N=100, new=False):
     print('n =',n)
 
     model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst = load_model(n,epoch)
     model.eval()
+    model.cuda()
     ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
     sigma = sigmaOPT ** 2
     sigma0_u = sigma0OPT ** 2
@@ -154,9 +153,10 @@ def plot_train(n):
     plt.show()
     plt.clf()
 
-def plot_m(n,epoch,M=100,m_list=np.arange(80,120,10), new=False):
+def plot_m(n,epoch,M=100,m_list=np.arange(80,120,10), new=True):
     model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst = load_model(n,epoch)
     model.eval()
+    model.cuda()
     ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
     sigma = sigmaOPT ** 2
     sigma0_u = sigma0OPT ** 2
@@ -243,14 +243,13 @@ if __name__ == "__main__":
     dtype = torch.float
     device = torch.device("cuda:0")
 
-
-    n = 1300000
+    n = 1500000
     X1= dataset_P[n:2*n]
     Y1= dataset_Q[n:2*n]
     
-    run_saved_model(n, 100, 60, N=20, new=True)
+    run_saved_model(n, 100,50, N=100, new=True)
     print('#####start plot#####')
-    plot_m(n,60)
+    plot_m(n,50,M=100)
 
     # p_s = np.zeros(301)
     # for i in range(301):

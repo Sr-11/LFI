@@ -53,11 +53,12 @@ def Pdist2(x, y):
     Pdist[Pdist<0]=0
     return Pdist
 
-def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
+def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, use_2nd = False):
     """compute value of MMD and std of MMD using kernel matrix."""
     """Kx: (n_x,n_x)"""
     """Kx: (n_y,n_y)"""
     """Kxy: (n_x,n_y)"""
+    """Notice: their estimator is also biased, including 2nd order term (but the value is incorrect)"""
     Kxxy = torch.cat((Kx,Kxy),1)
     Kyxy = torch.cat((Kxy.transpose(0,1),Ky),1)
     Kxyxy = torch.cat((Kxxy,Kyxy),0)
@@ -92,6 +93,9 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
     varEst = 4*(V1 - V2**2)
     #if varEst == 0.0:
     #    print('error!!'+str(V1))
+    if use_2nd:
+        V3 = 0
+        return mmd2, varEst, Kxyxy
     return mmd2, varEst, Kxyxy
 
 def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,

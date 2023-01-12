@@ -47,7 +47,7 @@ def crit(mmd_val, mmd_var, liuetal=False, Sharpe=True):
         mmd_std_temp = torch.sqrt(mmd_var+10**(-8)) #this is std
         return torch.div(mmd_val, mmd_std_temp)
     elif Sharpe:
-        return mmd_val - 2.0 * mmd_var
+        return mmd_val + 2.0 * mmd_var
 
 # calculate the MMD for m!=n
 def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
