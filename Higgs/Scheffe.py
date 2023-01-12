@@ -12,42 +12,42 @@ import os
 from GPUtil import showUtilization as gpu_usage
 from numba import cuda
 from tqdm import tqdm, trange
+import os
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"]="4"  # specify which GPU(s) to be used
 """
 We selected a five-layer neural network with 300 hidden units in each layer, 
 a learning rate of 0.05, and a weight decay coefficient of 1e-5.
 """
 H = 300
-out = 300
 class DN(torch.nn.Module):
     def __init__(self):
         super(DN, self).__init__()
         self.restored = False
         self.model = torch.nn.Sequential(
             torch.nn.Linear(28, H, bias=True),
-            torch.nn.ReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, out, bias=True),
+            torch.nn.Tanh(),
+            torch.nn.Linear(H, 1, bias=True),
         )
     def forward(self, input):
         output = self.model(input)
         return output
 
-def crit(mmd_val, mmd_var, liuetal=False, Sharpe=True):
+def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
     """compute the criterion, liu or Sharpe"""
     ######IMPORTANT: if we want to maximize, need to multiply by -1######
     #return mmd_val + mmd_var
     if liuetal:
         mmd_std_temp = torch.sqrt(mmd_var+10**(-8)) #this is std
         return torch.div(mmd_val, mmd_std_temp)
-    elif Sharpe:
-        return mmd_val - 2.0 * mmd_var
+    # elif Sharpe:
+    #     return mmd_val - 2.0 * mmd_var
 
 # calculate the MMD for m!=n
 def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
@@ -214,24 +214,6 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
     else:
         batches = n//batch_size + 1 # last batch could be empty
         n = batches*batch_size  
-    #region
-    # save parameters
-    # parameters={'n':n,
-    #             'm_list':m_list,
-    #             'N_epoch':N_epoch,
-    #             'learning_rate':learning_rate,
-    #             'batch_size':batch_size,
-    #             'batches':batches,
-    #             'test_on_new_sample':test_on_new_sample,
-    #             'SGD':SGD,
-    #             'gen_fun':gen_fun(-1),
-    #             'K':K,
-    #             'seed' : seed,
-    #             'N':N,}
-    # with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
-    #     pickle.dump(parameters, pickle_file)
-    # print starting flag
-    #endregion 
     print("\n------------------------------------------------")
     print("----- Starting K=%d independent kernels   -----"%(N_epoch))
     print("----- N_epoch=%d epochs per data trial    ------"%(K))
@@ -288,7 +270,7 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
         eps=MatConvert(np.zeros((1,)), device, dtype)
         eps.requires_grad = True
         cst=MatConvert(1*np.ones((1,)), device, dtype) # set to 1 to meet liu etal objective
-        cst.requires_grad = True
+        cst.requires_grad = False
         # load
         if load_epoch>0:
             model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst = load_model(load_n, load_epoch)
@@ -311,7 +293,22 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
                 sigma0_u = sigma0OPT ** 2
                 # load training data from S
                 S = total_S[ind]
+    #region
 
+                # Generate Higgs (P,Q)
+                # N1_T = dataX.shape[0]
+                # N2_T = dataY.shape[0]
+                # np.random.seed(seed=1102 * kk + n)
+                # ind1 = np.random.choice(N1_T, n, replace=False)
+                # np.random.seed(seed=819 * kk + n)
+                # ind2 = np.random.choice(N2_T, n, replace=False)
+                # s1 = dataX[ind1,:4]
+                # s2 = dataY[ind2,:4]
+                # N1 = n
+                # N2 = n
+                # S = np.concatenate((s1, s2), axis=0)
+                # S = MatConvert(S, device, dtype)
+    #endregion
                 # input into NN
                 modelu_output = model(S) 
                 # calculate MMD
@@ -339,14 +336,14 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
             
             # Print MMD, std of MMD and J
             if t % print_every == 0:
-                # validation
+                #validation
                 with torch.torch.no_grad():
                     modelu_output = model(S1_v)
                     TEMP = MMDu(modelu_output, 1000, S1_v, sigma, sigma0_u, ep, cst)
                     mmd_value_temp, mmd_var_temp = -TEMP[0], TEMP[1]
                     mmd_val_validations[t] = mmd_value_temp.item()
                     J_validations[t] = crit(mmd_value_temp, mmd_var_temp).item()
-                print
+                # print
                 print("TEST mmd_value: ", mmd_value_temp.item()) 
                 print("TEST Objective: ", STAT_u.item())
                 time_per_epoch = (time.time() - begin_time)/print_every
@@ -359,7 +356,9 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
                 print('cst', cst.item())
                 print('------------------------------------')
                 begin_time = time.time()
+            if t%10==0 and t>0:
                 save_model(n_backup,model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,t+load_epoch)
+            if t%10==0:
                 plt.plot(range(t), J_star_u[kk, :][0:t], label='J')
                 plt.plot(range(t), mmd_val_record[kk, 0:t], label='MMD')
                 plt.plot(np.arange(N_epoch)[mmd_val_validations!=0], mmd_val_validations[mmd_val_validations!=0], label='MMD_validation')
@@ -409,9 +408,9 @@ if __name__ == "__main__":
     except:
         print("Warning: No title given, using default")
         title = 'untitled_run'
-    n = 1300002
+    n = 1000005
     m_list = [400] # 不做LFI没有用
-    N_epoch = 61
+    N_epoch = 301
 
     if 1:
         train(n, [50], 
@@ -421,18 +420,18 @@ if __name__ == "__main__":
         N_epoch = N_epoch, # 只load就设成1
         print_every = 10, 
         batch_size = 1024, 
-        learning_rate = 5e-4, 
+        learning_rate =5e-4, 
         test_on_new_sample = True, # 不做LFI没有用
         SGD = True, 
         gen_fun = gen_fun, 
         seed = random_seed,
         dataset_P = dataset_P, dataset_Q = dataset_Q,
-        load_epoch = 0, load_n=2000000)
+        load_epoch = 0, load_n=10000)
     else:
         print('################## Start test ##################')
         # load model
-        import gc
-        gc.collect()
-        torch.cuda.empty_cache()
-        run_saved_model(n, 100, 40, N=20)
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+    run_saved_model(n, 100, 300, N=20)
     
