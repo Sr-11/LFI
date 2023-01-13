@@ -117,13 +117,18 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, use_2nd =
         E_H12 = (torch.sum(H)-nx*E_H11) / (nx*(nx-1))
         E_H11_sqaure = torch.sum(torch.diag(H)**2) / nx
         E_H12_square = (torch.sum(H**2)-nx*E_H11_sqaure) / (nx*(nx-1))
-        V1 = (H.sum(1)**2).sum / ny / ny / ny
-        E_H12_H13 = ( (H.sum(1)**2).sum / ny - E_H11 - (nx-1)*E_H12_square) / (nx*(nx-1))
-        varEst =4*(E_H12_H13-E_H12_square) + 2/nx*(E_H12**2+E_H12_square-2*E_H12_H13)
+        V1 = torch.dot(H.sum(1)/ny,H.sum(1)/ny) / ny
+        V2 = (H).sum() / (nx) / nx
+        E_H12_H13 = ( (H.sum(1)**2).sum() / ny - E_H11 - (nx-1)*E_H12_square) / (nx*(nx-1))
+        #varEst =4*(E_H12_H13-E_H12_square) + 2/nx*(E_H12**2+E_H12_square-2*E_H12_H13)
+        first = 4*(V1 - V2**2)
+        second = 1/(2*nx)* (8*E_H12_H13+4*E_H11*E_H12-11*E_H12**2-E_H12_square)
+        varEst = first + second
+        print('1st,2nd: ', first, second)
         return mmd2, varEst, Kxyxy
 
 def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
-         is_smooth=True, is_var_computed=True, use_1sample_U=True):
+         is_smooth=True, is_var_computed=True, use_1sample_U=True, use_2nd=False):
     """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
     X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)
@@ -145,7 +150,7 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
         Ky = cst*torch.exp(-Dyy / sigma0)
         Kxy = cst*torch.exp(-Dxy / sigma0)
 
-    return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
+    return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U, use_2nd)
 
 def MMD_General(Fea, n, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True):
     return MMDu(Fea, n, Fea_org, sigma, sigma0, epsilon, is_smooth, is_var_computed=False, use_1sample_U=False)

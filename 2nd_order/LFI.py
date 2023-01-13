@@ -8,6 +8,7 @@ import pickle
 from Data_gen import *
 import torch.nn as nn
 import time
+import plot_from
 
 class ModelLatentF(torch.nn.Module):
     """Latent space for both domains."""
@@ -80,7 +81,8 @@ def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
 
 def train_d(n, m_list, title='Default', learning_rate=5e-4, 
             K=10, N=1000, N_epoch=50, print_every=100, batch_size=32, 
-            test_on_new_sample=True, SGD=True, gen_fun=blob, seed=42):  
+            test_on_new_sample=True, SGD=True, gen_fun=blob, seed=42,
+            use_2nd = False, use_mean_var = False):  
     #set random seed for torch and numpy
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -88,12 +90,10 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
     dtype = torch.float
     device = torch.device("cuda:0")
     x_in = 2 # number of neurons in the input layer, i.e., dimension of data, blob:2
-    # for blob, use x_in=2, H=50, x_out=50
-    # for cifar10, use x_in=3072
-    #x_in = 3072 # number of neurons in the input layer, i.e., dimension of data, CIFAR10:32*32*3=3072
     H = 50 # number of neurons in the hidden layers
     x_out = 50 # number of neurons in the output layer (feature space)
     N_f = float(N) # number of test sets (float)
+    n_backup = n
     if not SGD:
         batch_size=n
         batches=1
@@ -101,7 +101,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
         batches=1+n//batch_size
         n=batches*batch_size #round up
 
-    parameters={'n':n,
+    parameters={'n':n_backup,
                 'm_list':m_list,
                 'N_epoch':N_epoch,
                 'learning_rate':learning_rate,
@@ -112,7 +112,9 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                 'gen_fun':gen_fun(-1),
                 'K':K,
                 'seed' : seed,
-                'N':N,}
+                'N':N,
+                'use_2nd':use_2nd,
+                'use_mean_var':use_mean_var}
     with open('./data/PARAMETERS_'+title, 'wb') as pickle_file:
         pickle.dump(parameters, pickle_file)
     
@@ -138,7 +140,12 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                     Y[i*batch_size:i*batch_size+batch_size]) 
                     for i in range(batches)]
         total_S=[MatConvert(np.concatenate((X, Y), axis=0), device, dtype) for (X, Y) in total_S]
-        if gen_fun==blob:
+
+        n_val = 100
+        X_val, Y_val = gen_fun(n_val)
+        S_val = MatConvert(np.concatenate((X_val, Y_val), axis=0), device, dtype)
+
+        if gen_fun==blob or gen_fun==one_bump:
             model_u = ModelLatentF(x_in, H, x_out).cuda()
         elif gen_fun==diffusion_cifar10:
             model_u = ConvNet_CIFAR10().cuda()
@@ -151,9 +158,14 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
         eps=MatConvert(np.zeros((1,)), device, dtype)
         eps.requires_grad = True
         cst=MatConvert(np.ones((1,)), device, dtype) # set to 1 to meet liu etal objective
-        cst.requires_grad = True
+        if use_mean_var:
+            cst.requires_grad = True
+        else:
+            cst.requires_grad = False
         optimizer_u = torch.optim.Adam(list(model_u.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps]+[cst], lr=learning_rate)
 
+        J_vals = np.zeros([N_epoch])
+        Js = np.zeros([N_epoch])
         for t in range(N_epoch):
             # Compute epsilon, sigma and sigma_0
             for ind in range(batches):
@@ -162,27 +174,39 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                 sigma0_u = sigma0OPT ** 2
                 S=total_S[ind]
                 modelu_output = model_u(S) 
-                TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep, cst)
+                TEMP = MMDu(modelu_output, batch_size, S, sigma, sigma0_u, ep, cst, use_2nd=use_2nd)
                 mmd_val = -1 * TEMP[0]
                 mmd_var = TEMP[1]
-                STAT_u = crit(mmd_val, mmd_var) 
+                STAT_u = crit(mmd_val, mmd_var, liuetal= not use_mean_var) 
                 J_star_u[kk, t] = STAT_u.item()
                 optimizer_u.zero_grad()
                 STAT_u.backward(retain_graph=True)
                 optimizer_u.step()
+                Js[t] = STAT_u.item()
             # Print MMD, std of MMD and J
             if t % print_every == 0:
                 print('------------------------------------')
                 print('Epoch:', t)
                 print("mmd_value: ", mmd_val.item()) 
-                        #"mmd_std: ", mmd_std_temp.item(), 
+                print("mmd_var: ", mmd_var.item())
                 print("Objective: ", STAT_u.item())
+                with torch.torch.no_grad():
+                    TEMP = MMDu(model_u(S_val), n_val, S_val, sigma, sigma0_u, ep, cst, use_2nd=use_2nd)
+                    mmd_val = -1 * TEMP[0]
+                    mmd_var = TEMP[1]
+                    J_vals[t] = crit(mmd_val, mmd_var, liuetal= not use_mean_var) .item()
+                    print("Objective_val: ", J_vals[t])
                 print(cst)
                 print('------------------------------------')
         ep_OPT[kk] = ep.item()
         s_OPT[kk] = sigma.item()
         s0_OPT[kk] = sigma0_u.item()
-        
+        plt.scatter(range(N_epoch), J_vals, label='J_val')
+        plt.plot(range(N_epoch), Js, label='J')
+        plt.savefig('./data/LFI_tst_Jval_'+title+str(n_backup))
+        plt.legend()
+        plt.close()
+
         #testing how model behaves on untrained data
         print('CRITERION ON NEW SET OF DATA:')            
         X1, Y1 = gen_fun(n)
@@ -199,6 +223,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
                 
         H_u = np.zeros(N) 
         H_v = np.zeros(N)
+        print('------------------------------------------------------')
         print("Under this trained kernel, we run N = %d times LFI: "%N)
         if test_on_new_sample:
             X, Y = gen_fun(n)
@@ -206,10 +231,7 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
             print("start testing m = %d"%m_list[i])
             m = m_list[i]
             for k in range(N):     
-                #t=time.time()  
                 Z1, Z2 = gen_fun(m)
-                #print(cst)
-                #print(time.time()-t)
                 mmd_XZ = mmdG(X, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
                 mmd_YZ = mmdG(Y, Z1, model_u, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
                 H_u[k] = mmd_XZ < mmd_YZ    
@@ -221,8 +243,8 @@ def train_d(n, m_list, title='Default', learning_rate=5e-4,
             Results[0, kk, i] = H_u.sum() / N_f
             Results[1, kk, i] = H_v.sum() / N_f
 
-    np.save('./data/LFI_tst_'+title+str(n),Results) 
-    ####Plotting    
+    np.save('./data/LFI_tst_'+title+str(n_backup),Results) 
+    return np.mean(Results, axis=(0,1))
     #LFI_plot(n_list, title=title)
 
 def train_O(n_list, m_list):
@@ -230,9 +252,19 @@ def train_O(n_list, m_list):
     #implemented in DK-TST
     pass
 
+def plot_dataset(gen):
+    X, Y = gen(1000)
+    plt.scatter(X[:,0], X[:,1], c='r', alpha=0.5, label='X')
+    plt.scatter(Y[:,0], Y[:,1], c='b', alpha=0.5, label='Y')
+    plt.legend()
+    plt.savefig('./data/blob.png')
+    plt.show()
+    plt.clf()
+    
 if __name__ == "__main__":
-    n = 500
-    m_list = 10*np.array(range(4,5))
+    n = 200
+    m_list = np.arange(0,200,50)
+
     random_seed=42
     try:
         title=sys.argv[1]
@@ -241,7 +273,7 @@ if __name__ == "__main__":
         print('Please use specified titles for saving data')
         title='untitled_run'
 
-    diffusion_data=True
+    diffusion_data=False
     if diffusion_data:
         dataset_P, dataset_Q = load_diffusion_cifar() #Helper Function in Data_gen.py
         def diffusion_cifar10(n):
@@ -252,7 +284,28 @@ if __name__ == "__main__":
             #np.random.shuffle(dataset_Q)
             Ys = dataset_Q[np.random.choice(dataset_Q.shape[0], n)]
             return Xs, Ys
-    
-    train_d(500, [50], title=title, learning_rate=5e-4, K=10, N=100, 
-            N_epoch=100, print_every=20, batch_size=10, test_on_new_sample=True, 
-            SGD=True, gen_fun=blob, seed=random_seed)
+
+    plot_dataset(one_bump)
+
+    title = 'FF'
+    Results = train_d(
+            n, m_list, title=title, learning_rate=5e-4, K=5, N=100, 
+            N_epoch=200, print_every=10, batch_size=n+1, test_on_new_sample=True, 
+            SGD=True, gen_fun=one_bump, seed=random_seed, use_2nd=False, use_mean_var=False)
+    with open('./data/PARAMETERS_'+title, 'rb') as f:
+        parameters = pickle.load(f)
+    result= np.load('./data/LFI_tst_'+'FF'+str(n)+'.npy')
+    plot_from.plot(result, parameters, title=title)
+
+    title = 'TF'
+    Results = train_d(
+            n, m_list, title=title, learning_rate=5e-4, K=5, N=100, 
+            N_epoch=200, print_every=10, batch_size=n+1, test_on_new_sample=True, 
+            SGD=True, gen_fun=one_bump, seed=random_seed, use_2nd=True, use_mean_var=False)
+    with open('./data/PARAMETERS_'+title, 'rb') as f:
+        parameters = pickle.load(f)
+    result= np.load('./data/LFI_tst_'+title+str(n)+'.npy')
+    plot_from.plot(result, parameters, title=title)
+
+    import plot_all
+    plot_all.main('')

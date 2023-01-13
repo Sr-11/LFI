@@ -17,28 +17,52 @@ os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="6"  # specify which GPU(s) to be used
 
 H = 300
-out= 300
-class DN(torch.nn.Module):
-    def __init__(self):
-        super(DN, self).__init__()
-        self.restored = False
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(28, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, out, bias=True),
+out= 100
+L = 1
+relu = True
+if not relu:
+    class DN(torch.nn.Module):
+        def __init__(self):
+            super(DN, self).__init__()
+            self.restored = False
+            self.model = torch.nn.Sequential(
+                torch.nn.Linear(28, H, bias=True),
+                torch.nn.Softplus(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.Softplus(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.Softplus(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.Softplus(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.Softplus(),
+                torch.nn.Linear(H, out, bias=True),
+            )
+        def forward(self, input):
+            output = self.model(input)
+            return output
+if relu:
+    class DN(torch.nn.Module):
+        def __init__(self):
+            super(DN, self).__init__()
+            self.restored = False
+            self.model = torch.nn.Sequential(
+                torch.nn.Linear(28, H, bias=True),
+                torch.nn.ReLU(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.ReLU(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.ReLU(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.ReLU(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.ReLU(),
+                torch.nn.Linear(H, out, bias=True),
+            )
+        def forward(self, input):
+            output = self.model(input)
+            return output
 
-        )
-    def forward(self, input):
-        output = self.model(input)
-        return output
 
 def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
     """compute the criterion, liu or Sharpe"""
@@ -51,12 +75,12 @@ def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
     #     return mmd_val - 2.0 * mmd_var
 
 # calculate the MMD for m!=n
-def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
+def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep, L=L):
     S = np.concatenate((X, Y), axis=0)
     S = MatConvert(S, device, dtype)
     Fea = model_u(S)
     n = X.shape[0]
-    return MMD_General(Fea, n, S, sigma, sigma0_u, ep)
+    return MMD_General(Fea, n, S, sigma, sigma0_u, ep, L=L)
 
 def save_model(n,model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
     path = './checkpoint%d/'%n+str(epoch)+'/'
@@ -83,7 +107,7 @@ def load_model(n, epoch=0):
     return model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst
 
 # run_saved_model(3000,500)
-def run_saved_model(n, m, epoch=0, N=10):
+def run_saved_model(n, m, epoch=0, N=100):
     print('n =',n)
 
     model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst = load_model(n,epoch)
@@ -102,13 +126,16 @@ def run_saved_model(n, m, epoch=0, N=10):
     with torch.torch.no_grad():                           
         for ii in trange(M):
             Z0 = dataset_P[np.random.choice(dataset_P.shape[0], 1100)]
-            #X1, Y1 = gen_fun(min(n,10000))
-            if n>10000:
-                mmd_PZ = mmdG(X1[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-                mmd_QZ = mmdG(Y1[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-            else:
-                mmd_PZ = mmdG(X1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-                mmd_QZ = mmdG(Y1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            X1, Y1 = gen_fun(min(n,10000))
+            mmd_PZ = mmdG(X1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            mmd_QZ = mmdG(Y1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+
+            # if n>10000:
+            #     mmd_PZ = mmdG(X1[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            #     mmd_QZ = mmdG(Y1[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            # else:
+            #     mmd_PZ = mmdG(X1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            #     mmd_QZ = mmdG(Y1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
             samples[ii] = mmd_QZ-mmd_PZ 
     mean = np.mean(samples)
     var = np.var(samples)*M/(M-1)
@@ -120,8 +147,9 @@ def run_saved_model(n, m, epoch=0, N=10):
         signal_events = dataset_Q[np.random.choice(dataset_Q.shape[0], 100)]
         Z = np.concatenate((signal_events, background_events), axis=0)
         with torch.torch.no_grad():     
-            mmd_PZ = mmdG(X1[np.random.choice(n,10000)], Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-            mmd_QZ = mmdG(Y1[np.random.choice(n,10000)], Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            X1, Y1 = gen_fun(min(n,10000))
+            mmd_PZ = mmdG(X1, Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            mmd_QZ = mmdG(Y1, Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
             T = mmd_QZ-mmd_PZ # test statistic
         pval_list[k] = -(T-mean)/np.sqrt(var) # p-value is in #sigma
 
@@ -151,12 +179,15 @@ def plot_train(n):
     plt.show()
     plt.clf()
 
-def plot_m(n,epoch,M=100,m_list=np.arange(0,200,10)):
+def plot_m(n,epoch,M=100,m_list=np.arange(70,140,10)):
     model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst = load_model(n,epoch)
     model.eval()
     ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
     sigma = sigmaOPT ** 2
     sigma0_u = sigma0OPT ** 2
+    print('ep',ep)
+    print('sigma',sigma)
+    print('sigma0_u',sigma0_u)
     print('cst',cst)
 
     ######### p value #########
@@ -164,20 +195,19 @@ def plot_m(n,epoch,M=100,m_list=np.arange(0,200,10)):
 
     # compute mean and variance of sum(phi(Zi)) when Z~P
     # evaluate the mean and variance of T~H0
-    samples = np.zeros(M)
+    MM = M*4
+    samples = np.zeros(MM)
     with torch.torch.no_grad():                           
-        for ii in trange(M):
+        for ii in trange(MM):
             Z0 = dataset_P[np.random.choice(dataset_P.shape[0], 1100)]
-            #X1, Y1 = gen_fun(min(n,10000))
-            if n>10000:
-                mmd_PZ = mmdG(X1[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-                mmd_QZ = mmdG(Y1[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-            else:
-                mmd_PZ = mmdG(X1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-                mmd_QZ = mmdG(Y1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            mmd_PZ = mmdG(dataset_P[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+            mmd_QZ = mmdG(dataset_Q[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
             samples[ii] = mmd_QZ-mmd_PZ 
     mean = np.mean(samples)
-    var = np.var(samples)*M/(M-1)
+    var = np.var(samples)*MM/(MM-1)
+    print('mean =', mean)
+    print('var =', var)
+    print('sigma of mean =', np.sqrt(var/M))
 
     # Z~0.9P+0.1Q
     all_pval = np.zeros(len(m_list))
@@ -185,21 +215,23 @@ def plot_m(n,epoch,M=100,m_list=np.arange(0,200,10)):
         print(m)
         pval_list = np.zeros(M)
         for k in trange(M):
-            background_events = dataset_P[np.random.choice(dataset_P.shape[0], 1000-m)]
+            background_events = dataset_P[np.random.choice(dataset_P.shape[0], 1000)]
             signal_events = dataset_Q[np.random.choice(dataset_Q.shape[0], m)]
             Z = np.concatenate((signal_events, background_events), axis=0)
             with torch.torch.no_grad():     
-                mmd_PZ = mmdG(X1[np.random.choice(n,10000)], Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-                mmd_QZ = mmdG(Y1[np.random.choice(n,10000)], Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                mmd_PZ = mmdG(dataset_P[np.random.choice(n,10000)], Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
+                mmd_QZ = mmdG(dataset_Q[np.random.choice(n,10000)], Z, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
                 T = mmd_QZ-mmd_PZ # test statistic
             pval_list[k] = -(T-mean)/np.sqrt(var) # p-value is in #sigma
         p_value = np.mean(pval_list)
         p_value_var = np.var(pval_list)
         all_pval[i] = p_value
         print('p_value =', p_value)
-    print(all_pval)
+    print('m_list =', m_list)
+    print('all_pval =', all_pval)
     plt.plot(m_list,all_pval)
     plt.savefig('./checkpoint%d/pval-m.png'%n)
+    print('saved at'+ './checkpoint%d/pval-m.png'%n)
     return plt.show()
 
 
@@ -255,11 +287,14 @@ def plot_m_use_pi(n, epoch,
     print(all_pval)
     plt.plot(m_list,all_pval)
     plt.savefig('./checkpoint%d/pval-m.png'%n)
+    print('saved at ./checkpoint%d/pval-m.png'%n)
     return plt.show()
 
-
-
 if __name__ == "__main__":
+
+    n = int(sys.argv[1])
+    epoch = int(sys.argv[2])
+
     # load data, please use .npy ones (40000), .gz (10999999)(11e6) is too large.
     dataset = np.load('HIGGS.npy')
     print('signal : background =',np.sum(dataset[:,0]),':',dataset.shape[0]-np.sum(dataset[:,0]))
@@ -274,33 +309,24 @@ if __name__ == "__main__":
         return X, Y
     # set seed
     random_seed = 42
-    # load title
-    try:
-        title = sys.argv[1]
-    except:
-        print("Warning: No title given, using default")
-        title = 'untitled_run'
-    m_list = [400] # 不做LFI没有用
-    N_epoch = 301
+    
 
     import gc
     seed=42
     gc.collect()
     torch.cuda.empty_cache()
-    #torch.manual_seed(seed)
-    #np.random.seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     torch.backends.cudnn.deterministic = True
     dtype = torch.float
     device = torch.device("cuda:0")
 
-
-    n=1000004
     X1= dataset_P[n:2*n]
     Y1= dataset_Q[n:2*n]
-    
-    run_saved_model(n, 100, 50, N=20)
+
+    run_saved_model(n, 100, epoch, N=100)
     print('#####start plot#####')
-    plot_m(n,50)
+    plot_m(n,epoch)
 
     # p_s = np.zeros(301)
     # for i in range(301):

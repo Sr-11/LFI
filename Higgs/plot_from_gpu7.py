@@ -209,6 +209,8 @@ def plot_m(n,epoch,M=100,m_list=np.arange(80,120,10), new=True):
     plt.savefig('./checkpoint%d/pval-m.png'%n)
     return plt.show()
 
+def 
+
 if __name__ == "__main__":
     # load data, please use .npy ones (40000), .gz (10999999)(11e6) is too large.
     dataset = np.load('HIGGS.npy')
@@ -231,19 +233,19 @@ if __name__ == "__main__":
         print("Warning: No title given, using default")
         title = 'untitled_run'
     m_list = [400] # 不做LFI没有用
-    N_epoch = 301
+    N_epoch = 101
 
     import gc
     seed=42
     gc.collect()
     torch.cuda.empty_cache()
-    #torch.manual_seed(seed)
-    #np.random.seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     torch.backends.cudnn.deterministic = True
     dtype = torch.float
     device = torch.device("cuda:0")
 
-    n = 1500000
+    n = 1000000
     X1= dataset_P[n:2*n]
     Y1= dataset_Q[n:2*n]
     

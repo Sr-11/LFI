@@ -14,7 +14,7 @@ import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="6"  # specify which GPU(s) to be used
 H = 300
-class DN(torch.nn.Module):
+class DN_theirs(torch.nn.Module):
     def __init__(self):
         super(DN, self).__init__()
         self.restored = False
@@ -39,6 +39,33 @@ class DN(torch.nn.Module):
         output = self.model(input)
         return output
 
+class DN(torch.nn.Module):
+    def __init__(self):
+        super(DN, self).__init__()
+        self.restored = False
+        self.model = torch.nn.Sequential(
+            torch.nn.Linear(28, H, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Linear(H, 1, bias=True),
+            torch.nn.Sigmoid()
+        )
+        torch.nn.init.normal_(self.model[0].weight,0,0.1)
+        torch.nn.init.normal_(self.model[2].weight,0,0.05)
+        torch.nn.init.normal_(self.model[4].weight,0,0.05)
+        torch.nn.init.normal_(self.model[6].weight,0,0.05)
+        torch.nn.init.normal_(self.model[8].weight,0,0.001)
+    def forward(self, input):
+        output = self.model(input)
+        return output
+
 
 def train(model, total_S, total_labels, validation_S, validation_labels,
           batch_size=100, lr=0.0002, epochs=1000, load_epoch=0, save_per=10):
@@ -49,8 +76,8 @@ def train(model, total_S, total_labels, validation_S, validation_labels,
     #scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=2-1.0000002)
     for epoch in trange(load_epoch, epochs+load_epoch):
         for g in optimizer.param_groups:
-            g['momentum'] = 0.9+min(epoch,198)/200*0.1
-            g['lr'] = max(lr*(0.9999998**(epoch*len(total_S))), 1e-6)
+            g['momentum'] = 0.9+min(epoch,200)/200*0.09
+            g['lr'] = max(lr*((1.0/1.0000002)**(epoch*len(total_S))), 1e-6)
         print(g['momentum'], g['lr'])
         print('epoch', epoch)
         for i in range(0, len(total_S)):
@@ -139,7 +166,10 @@ if __name__ == "__main__":
     #dataset_Q = np.ones((100000,28))
     del dataset
     # 改这个
-    n = 1300000 #####
+    # 1300000是paper里的
+    # 1300001是我的，把lr=0.05改小成2e-3, batch从100变成2048
+    # 130002换net
+    n = 1300002 #####
     test_epoch = 100 #####
 
     if title == 'test':
@@ -150,11 +180,10 @@ if __name__ == "__main__":
         pval = calculate_pval(model, dataset_P[n:2*n], dataset_Q[n:2*n], N=20)
         #pval = calculate_pval(model, dataset_P[0:n], dataset_Q[0:n], N=20)
 
-
     elif title == 'train':
         print('-------------------train--------------------')
         X, Y = dataset_P[:n], dataset_Q[:n]
-        batch_size = 100
+        batch_size = 2048
         batches = n//batch_size
         total_S = [(X[i*batch_size:(i+1)*batch_size], 
                     Y[i*batch_size:(i+1)*batch_size]) 

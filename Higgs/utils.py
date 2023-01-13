@@ -99,7 +99,7 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, use_2nd =
     return mmd2, varEst, Kxyxy
 
 def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
-         is_smooth=True, is_var_computed=True, use_1sample_U=True):
+         is_smooth=True, is_var_computed=True, use_1sample_U=True, L=1):
     """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
     X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)
@@ -123,8 +123,8 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
 
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
-def MMD_General(Fea, n, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True):
-    return MMDu(Fea, n, Fea_org, sigma, sigma0, epsilon, is_smooth, is_var_computed=False, use_1sample_U=False)
+def MMD_General(Fea, n, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True, L=1):
+    return MMDu(Fea, n, Fea_org, sigma, sigma0, epsilon, is_smooth, is_var_computed=False, use_1sample_U=False, L=L)
 
 
 def MMDu_linear_kernel(Fea, len_s, is_var_computed=True, use_1sample_U=True):
