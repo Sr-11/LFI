@@ -129,7 +129,6 @@ def run_saved_model(n, m, epoch=0, N=100):
             X1, Y1 = gen_fun(min(n,10000))
             mmd_PZ = mmdG(X1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
             mmd_QZ = mmdG(Y1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
-
             # if n>10000:
             #     mmd_PZ = mmdG(X1[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
             #     mmd_QZ = mmdG(Y1[np.random.choice(n,10000)], Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
@@ -138,7 +137,7 @@ def run_saved_model(n, m, epoch=0, N=100):
             #     mmd_QZ = mmdG(Y1, Z0, model, n, sigma, sigma0_u, device, dtype, ep)[0] * cst
             samples[ii] = mmd_QZ-mmd_PZ 
     mean = np.mean(samples)
-    var = np.var(samples)*M/(M-1)
+    var = np.var(samples)
 
     # Z~0.9P+0.1Q
     pval_list = np.zeros(N)
@@ -294,7 +293,7 @@ if __name__ == "__main__":
 
     n = int(sys.argv[1])
     epoch = int(sys.argv[2])
-
+    scheffe = int(sys.argv[3]) # 1 for scheffe,  for pi
     # load data, please use .npy ones (40000), .gz (10999999)(11e6) is too large.
     dataset = np.load('HIGGS.npy')
     print('signal : background =',np.sum(dataset[:,0]),':',dataset.shape[0]-np.sum(dataset[:,0]))
@@ -327,16 +326,3 @@ if __name__ == "__main__":
     run_saved_model(n, 100, epoch, N=100)
     print('#####start plot#####')
     plot_m(n,epoch)
-
-    # p_s = np.zeros(301)
-    # for i in range(301):
-    #     try:
-    #         p_s[i] = run_saved_model(n, 100, i, N=20)
-    #         print(i, p_s[i])
-    #         plt.scatter(range(301),p_s)
-    #     except:
-    #         pass
-    #     if p_s[i] != 0:
-    #         plt.savefig('./checkpoint'+str(n)+'/p_s.png')
-
-    

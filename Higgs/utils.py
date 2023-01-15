@@ -2,29 +2,17 @@ import numpy as np
 import torch
 import torch.utils.data
 from matplotlib import pyplot as plt
-
+import pandas as pd
+import pyroc
 is_cuda = True
+import scipy
+import gc
 
-class ModelLatentF(torch.nn.Module):
-    """define deep networks."""
-    def __init__(self, x_in, H, x_out):
-        """Init latent features."""
-        super(ModelLatentF, self).__init__()
-        self.restored = False
-
-        self.latent = torch.nn.Sequential(
-            torch.nn.Linear(x_in, H, bias=True),
-            torch.nn.Softplus(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.Softplus(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.Softplus(),
-            torch.nn.Linear(H, x_out, bias=True),
-        )
+class ConstModel(torch.nn.Module):
+    def __init__(self):
+        super(ConstModel, self).__init__()
     def forward(self, input):
-        """Forward the LeNet."""
-        fealant = self.latent(input)
-        return fealant
+        return input
 
 def get_item(x, is_cuda):
     """get the numpy value from a torch tensor."""
@@ -51,6 +39,9 @@ def Pdist2(x, y):
         y_norm = x_norm.view(1, -1)
     Pdist = x_norm + y_norm - 2.0 * torch.mm(x, torch.transpose(y, 0, 1))
     Pdist[Pdist<0]=0
+    # del x_norm, y_norm
+    # gc.collect()
+    # torch.cuda.empty_cache()
     return Pdist
 
 def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, use_2nd = False):
@@ -87,7 +78,9 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, use_2nd =
     if not is_var_computed:
         return mmd2, None
     # H[i,j]=k(x_i,x_j)+k(y_i,y_j)-k(x_i,y_j)-k(y_i,x_j)
+    #print(Kx.shape, Ky.shape, Kxy.shape)
     H = Kx+Ky-Kxy-Kxy.transpose(0,1)
+    #print(H.shape)
     V1 = torch.dot(H.sum(1)/ny,H.sum(1)/ny) / ny
     V2 = (H).sum() / (nx) / nx
     varEst = 4*(V1 - V2**2)
@@ -99,7 +92,7 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, use_2nd =
     return mmd2, varEst, Kxyxy
 
 def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
-         is_smooth=True, is_var_computed=True, use_1sample_U=True, L=1):
+         is_smooth=True, is_var_computed=True, use_1sample_U=True, L=1, kwarg=None):
     """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
     X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)
@@ -120,6 +113,10 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
         Kx = cst*torch.exp(-Dxx / sigma0)
         Ky = cst*torch.exp(-Dyy / sigma0)
         Kxy = cst*torch.exp(-Dxy / sigma0)
+    if kwarg == 'Gaussian':
+        Kx = torch.exp(-Dxx_org / sigma)
+        Ky = torch.exp(-Dyy_org / sigma)
+        Kxy = torch.exp(-Dxy_org / sigma)
 
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
@@ -140,32 +137,175 @@ def MMDu_linear_kernel(Fea, len_s, is_var_computed=True, use_1sample_U=True):
     Kxy = X.mm(Y.transpose(0,1))
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
-
-def LFI_plot(n_list, title="LFI_with_Blob" ,path='./data/', with_error_bar=True):
-    Results_list = []
-    fig = plt.figure(figsize=(10, 8))
-    ZX_success = np.zeros(len(n_list))
-    ZY_success = np.zeros(len(n_list))
-    ZX_err = np.zeros(len(n_list))
-    ZY_err = np.zeros(len(n_list))
-    for i,n in enumerate(n_list):
-        Results_list.append(np.load(path+'LFI_%d.npy'%n))
-        ZX_success[i] = np.mean(Results_list[-1][0,:])
-        ZY_success[i] = np.mean(Results_list[-1][1,:])
-        ZX_err[i] = np.std(Results_list[-1][0,:])
-        ZY_err[i] = np.std(Results_list[-1][1,:])
-    if with_error_bar==True:
-        plt.errorbar(n_list, ZX_success, yerr=ZX_err, label='Z~X')
-        plt.errorbar(n_list, ZY_success, yerr=ZY_err, label='Z~Y')
+def load_model(model, another_model, path):
+    # model = DN().cuda()
+    # another_model = another_DN().cuda()
+    if path[2:9] == 'Scheffe':
+        model.load_state_dict(torch.load(path+'model.pt'))
+        model.eval()
+        print('Scheffe')
+        return model, None, 'Scheffe', None, None, None
+    elif path[2:10] == 'Gaussian':
+        model.load_state_dict(torch.load(path+'model.pt'))
+        model.eval()
+        print('Gaussian')
+        sigmaOPT = torch.load(path+'sigmaOPT.pt')
+        return model, None, 'Gaussian', sigmaOPT, None, None
+    elif path[2:9] == 'Fea_Gau':
+        model.load_state_dict(torch.load(path+'model.pt'))
+        model.eval()
+        print('Fea_Gau')
+        sigma0OPT = torch.load(path+'sigma0OPT.pt')
+        return model, None, 'Fea_Gau', None, sigma0OPT, None
     else:
-        plt.plot(n_list, ZX_success, label='Z~X')
-        plt.plot(n_list, ZY_success, label='Z~Y')
-    print('Success rates:')
-    print(ZX_success)
-    print(ZY_success)
-    plt.xlabel("n samples", fontsize=20)
-    plt.ylabel("P(success)", fontsize=20)
-    plt.legend(fontsize=20)
-    plt.savefig(title+'.png')
-    plt.close()
+        model.load_state_dict(torch.load(path+'model.pt'))
+        try:
+            another_model.load_state_dict(torch.load(path+'another_model.pt'))
+        except:
+            another_model = ConstModel().cuda()
+            print('No ResNet...')
+        try:
+            epsilonOPT = torch.load(path+'epsilonOPT.pt')
+            sigmaOPT = torch.load(path+'sigmaOPT.pt')
+            sigma0OPT = torch.load(path+'sigma0OPT.pt')
+            cst = torch.load(path+'cst.pt')
+        except:
+            print('No eps, sigma,cst...')
+        model.eval()
+        another_model.eval()
+        return model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst
+
+
+def compute_score_func(Z, dataset_P, dataset_Q, 
+                    model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst,
+                    L=1, M=20000, 
+                    dtype = torch.float, device = torch.device("cuda:0")): 
+    print('epsilonOPT =', epsilonOPT)
+    if epsilonOPT == 'Scheffe':
+        print('It is Scheffe')
+        return model(Z)
+    if epsilonOPT == 'Gaussian':
+        print('It is Gaussian')
+        sigma = sigmaOPT**2
+        X = dataset_P[np.random.choice(dataset_P.shape[0], M, replace=False)]
+        Y = dataset_Q[np.random.choice(dataset_Q.shape[0], M, replace=False)]
+        X = MatConvert(X, device, dtype)
+        Y = MatConvert(Y, device, dtype)
+        Dxz_org = Pdist2(X, Z)
+        Dyz_org = Pdist2(Y, Z)
+        Kxz = torch.exp(-Dxz_org / sigma)
+        Kyz = torch.exp(-Dyz_org / sigma)
+        phi_Z = torch.mean(Kyz - Kxz, axis=0)
+        return phi_Z
+    if epsilonOPT == 'Fea_Gau':
+        print('It is Fea_Gau')
+        sigma0 = sigma0OPT**2
+        X = dataset_P[np.random.choice(dataset_P.shape[0], M, replace=False)]
+        Y = dataset_Q[np.random.choice(dataset_Q.shape[0], M, replace=False)]
+        X = MatConvert(X, device, dtype)
+        Y = MatConvert(Y, device, dtype)
+        X_feature = model(X)
+        Y_feature = model(Y)
+        Z_feature = model(Z)
+        Dxz = Pdist2(X_feature, Z_feature)
+        Dyz = Pdist2(Y_feature, Z_feature)
+        Kxz = torch.exp(-Dxz / sigma0)
+        Kyz = torch.exp(-Dyz / sigma0)
+        phi_Z = torch.mean(Kyz - Kxz, axis=0)
+        return phi_Z
+
+    with torch.no_grad():
+        epsilon = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
+        sigma = sigmaOPT ** 2
+        sigma0 = sigma0OPT ** 2
+        X = dataset_P[np.random.choice(dataset_P.shape[0], M, replace=False)]
+        Y = dataset_Q[np.random.choice(dataset_Q.shape[0], M, replace=False)]
+        X = MatConvert(X, device, dtype)
+        Y = MatConvert(Y, device, dtype)
+        X_feature = model(X)
+        Y_feature = model(Y)
+        Z_feature = model(Z)
+        Dxz = Pdist2(X_feature, Z_feature)
+        Dyz = Pdist2(Y_feature, Z_feature)
+        # del X_feature, Y_feature, Z_feature
+        # gc.collect()
+        # torch.cuda.empty_cache()
+        X_resnet = another_model(X)
+        Y_resnet = another_model(Y)
+        Z_resnet = another_model(Z)
+        Dxz_org = Pdist2(X_resnet, Z_resnet)
+        Dyz_org = Pdist2(Y_resnet, Z_resnet)
+        Kxz = cst*((1-epsilon) * torch.exp(-(Dxz / sigma0) - (Dxz_org / sigma))**L + epsilon * torch.exp(-Dxz_org / sigma))
+        Kyz = cst*((1-epsilon) * torch.exp(-(Dyz / sigma0) - (Dyz_org / sigma))**L + epsilon * torch.exp(-Dyz_org / sigma))
+        phi_Z = torch.mean(Kyz - Kxz, axis=0)
+        return phi_Z
+
+def get_auc_and_x_and_y(PQhat):
+    M = PQhat.shape[0]//2
+    outcome = np.concatenate((np.zeros(M), np.ones(M)))
+    df = pd.DataFrame(PQhat, columns=['Higgs_Default'])
+    roc = pyroc.ROC(outcome, df)
+    auc = roc.auc
+    pred = roc.preds['Higgs_Default'] # 长度是2M
+    fpr, tpr = roc._roc(pred) # False positive rate, True positive rate
+    signal_to_signal_rate = tpr # 1认成1
+    background_to_background_rate = 1 - fpr # 0认成0 = 1 - 0认成1
+    return auc, signal_to_signal_rate, background_to_background_rate
+
+def plot_hist(P_scores, Q_scores):
+    fig = plt.figure()
+    plt.hist(P_scores, bins=100, label='P_score', alpha=0.5, color='r')
+    plt.hist(Q_scores, bins=100, label='Q_score', alpha=0.5, color='b')
+    P_mean_score = np.mean(P_scores)
+    Q_mean_score = np.mean(Q_scores)
+    plt.axvline(P_mean_score, color='r', linestyle='--', label='P_mean_score')
+    plt.axvline(Q_mean_score, color='b', linestyle='--', label='Q_mean_score')
+    P_std_score = np.std(P_scores)
+    Q_std_score = np.std(Q_scores)
+    plt.axvline(P_mean_score+P_std_score, color='r', linestyle=':')
+    plt.axvline(Q_mean_score+Q_std_score, color='b', linestyle=':')
+    plt.axvline(P_mean_score-P_std_score, color='r', linestyle=':')
+    plt.axvline(Q_mean_score-Q_std_score, color='b', linestyle=':')
+    plt.legend()
+    plt.savefig('./hist.png')
+    print('saved hist.png...')
     return fig
+
+def get_pval(X_score, Y_score, verbose = False, thres=None):
+    if thres is not None:
+        X_score = X_score>thres
+        Y_score = Y_score>thres
+    X_mean = np.mean(X_score)
+    X_std = np.std(X_score)
+    Y_mean = np.mean(Y_score)
+    Y_std = np.std(Y_score)
+    # 直接算平均的P的分数和方差，平均的Q的分数，然后加权
+    Z_score = (10*X_mean + Y_mean)/11
+    p_value = (Z_score-X_mean)/X_std
+    error = ((Y_mean+Y_std)-(X_mean-X_std))/11/(X_std*(1-1/np.sqrt(len(X_score)))) - p_value
+    if verbose:
+        print('#datapoints =', len(X_score), ', make sure #>10000 for 2 sig digits')
+        print('X_mean =', X_mean)
+        print('X_std =', X_std)
+        print('Y_mean =', Y_mean)
+        print('Y_std =', Y_std)
+        print('----------------------------------')
+        print('p_value = sqrt(1100) *', p_value)
+        print('error =', error)
+        print('----------------------------------')
+    return p_value
+
+def get_thres_pval(PQhat):
+    auc, x, y = get_auc_and_x_and_y(PQhat)
+    p_list = np.zeros(len(x))
+    for i in np.arange(p_list.shape[0]//10, p_list.shape[0]//10*9):
+        a = x[i] # sig->sig
+        b = y[i] # bkg->bkg 
+        if a==0 or b==0 or a==1 or b==1:
+            continue
+        E = 100*a+1000*(1-b)
+        p_val = scipy.stats.binom.cdf(E, 1100, 1-b)
+        p_list[i] = scipy.stats.norm.ppf(p_val)
+    #p_list = p_list[p_list.shape[0]//10 : p_list.shape[0]//10*9]
+    print('best thres p-val is ', np.max(p_list))
+    return np.max(p_list)

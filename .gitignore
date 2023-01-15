@@ -9,3 +9,5 @@ Higgs/HIGGS.csv.gz
 Higgs/HIGGS.npy
 Higgs/checkpoint/
 *.pt
+*.png
+*.npy

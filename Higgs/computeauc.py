@@ -43,32 +43,6 @@ class DN(torch.nn.Module):
         output = self.model(input)
         return output
 
-
-class DN(torch.nn.Module):
-    def __init__(self, H, out):
-        super(DN, self).__init__()
-        self.restored = False
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(28, H, bias=True),
-            torch.nn.Tanh(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.Tanh(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.Tanh(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.Tanh(),
-            torch.nn.Linear(H, 1, bias=True),
-            torch.nn.Sigmoid()
-        )
-        torch.nn.init.normal_(self.model[0].weight,0,0.1)
-        torch.nn.init.normal_(self.model[2].weight,0,0.05)
-        torch.nn.init.normal_(self.model[4].weight,0,0.05)
-        torch.nn.init.normal_(self.model[6].weight,0,0.05)
-        torch.nn.init.normal_(self.model[8].weight,0,0.001)
-    def forward(self, input):
-        output = self.model(input)
-        return output
-
 def load_model(n, epoch=0, scheffe=False):
     if scheffe:
         model = DN(300,1).cuda()
