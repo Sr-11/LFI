@@ -45,15 +45,15 @@ class DN(torch.nn.Module):
         self.restored = False
         self.model = torch.nn.Sequential(
             torch.nn.Linear(28, H, bias=True),
-            torch.nn.ReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(H, 1, bias=True),
             torch.nn.Sigmoid()
         )
@@ -178,25 +178,26 @@ if __name__ == "__main__":
 
     elif title == 'train':
         print('-------------------train--------------------')
-        X, Y = dataset_P[:n], dataset_Q[:n]
-        batch_size = 1024
-        batches = n//batch_size
-        total_S = [(X[i*batch_size:(i+1)*batch_size], 
-                    Y[i*batch_size:(i+1)*batch_size]) 
-                    for i in range(batches)]
-        total_S = [MatConvert(np.concatenate((X, Y), axis=0), device, dtype) for (X, Y) in total_S]
-        total_labels = [torch.cat((torch.zeros((batch_size,1), dtype=dtype), 
-                                torch.ones((batch_size,1), dtype=dtype))
-                                ).to(device) for _ in range(batches)]
-        ##### Validation #####
-        validation_S = MatConvert(np.concatenate((dataset_P[n:n+10000], dataset_Q[n:n+10000]), axis=0), device, dtype)
-        validation_labels = torch.cat((torch.zeros((10000,1), dtype=dtype),
-                                       torch.ones((10000,1), dtype=dtype))
-                                      ).to(device)
-        ##### Train #####
-        model = DN().to(device)
-        #model.load_state_dict(torch.load('./Scheffe/checkpoint%d/'%n+str(130)+'/'+'model.pt'))
-        model = train(model, total_S, total_labels, validation_S, validation_labels,
-                     batch_size=batch_size, lr=2e-3, epochs=501, load_epoch=0, save_per=10, momentum=0.99)
+        for n in [1300100, 1000100, 7000100]:
+            X, Y = dataset_P[:n], dataset_Q[:n]
+            batch_size = 1024
+            batches = n//batch_size
+            total_S = [(X[i*batch_size:(i+1)*batch_size], 
+                        Y[i*batch_size:(i+1)*batch_size]) 
+                        for i in range(batches)]
+            total_S = [MatConvert(np.concatenate((X, Y), axis=0), device, dtype) for (X, Y) in total_S]
+            total_labels = [torch.cat((torch.zeros((batch_size,1), dtype=dtype), 
+                                    torch.ones((batch_size,1), dtype=dtype))
+                                    ).to(device) for _ in range(batches)]
+            ##### Validation #####
+            validation_S = MatConvert(np.concatenate((dataset_P[n:n+10000], dataset_Q[n:n+10000]), axis=0), device, dtype)
+            validation_labels = torch.cat((torch.zeros((10000,1), dtype=dtype),
+                                        torch.ones((10000,1), dtype=dtype))
+                                        ).to(device)
+            ##### Train #####
+            model = DN().to(device)
+            #model.load_state_dict(torch.load('./Scheffe/checkpoint%d/'%n+str(130)+'/'+'model.pt'))
+            model = train(model, total_S, total_labels, validation_S, validation_labels,
+                        batch_size=batch_size, lr=2e-3, epochs=101, load_epoch=0, save_per=10, momentum=0.99)
 
-        
+            

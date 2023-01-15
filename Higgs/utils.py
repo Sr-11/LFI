@@ -307,18 +307,22 @@ def get_thres(PQhat):
         p_val = scipy.stats.binom.cdf(E, 1100, 1-b)
         p_list[i] = scipy.stats.norm.ppf(p_val)
     #p_list = p_list[p_list.shape[0]//10 : p_list.shape[0]//10*9]
-    print('best thres p-val is (overfit)', np.max(p_list))
     sorted = np.sort(PQhat, axis=None)
     i = np.argmax(p_list)
+    print('thres=', sorted[i], ',max=', np.max(PQhat), ',min=', np.min(PQhat))
     return sorted[i]
 
 def get_thres_pval(PQhat, thres):
     M = PQhat.shape[0]//2
-    Phat = PQhat[:M]>thres
+    Phat = PQhat[:M]<thres
     Qhat = PQhat[M:]>thres
+    print('test max:', np.max(PQhat), 'test min:', np.min(PQhat))
     #print(Phat,Qhat)
-    a = torch.mean(Qhat, dtype=torch.float32).item() # sig->sig
-    b = torch.mean(Phat, dtype=torch.float32).item() # bkg->bkg
+    a = np.mean(Qhat).item() # sig->sig
+    b = np.mean(Phat).item() # bkg->bkg
     E = 100*a+1000*(1-b)
+    print('a:', a, ', b:', b, ', E:', E)
     p_val = scipy.stats.binom.cdf(E, 1100, 1-b)
+    p_val = scipy.stats.norm.ppf(p_val)
+
     return p_val 
