@@ -295,7 +295,7 @@ def get_pval(X_score, Y_score, verbose = False, thres=None):
         print('----------------------------------')
     return p_value
 
-def get_thres_pval(PQhat):
+def get_thres(PQhat):
     auc, x, y = get_auc_and_x_and_y(PQhat)
     p_list = np.zeros(len(x))
     for i in np.arange(p_list.shape[0]//10, p_list.shape[0]//10*9):
@@ -307,5 +307,18 @@ def get_thres_pval(PQhat):
         p_val = scipy.stats.binom.cdf(E, 1100, 1-b)
         p_list[i] = scipy.stats.norm.ppf(p_val)
     #p_list = p_list[p_list.shape[0]//10 : p_list.shape[0]//10*9]
-    print('best thres p-val is ', np.max(p_list))
-    return np.max(p_list)
+    print('best thres p-val is (overfit)', np.max(p_list))
+    sorted = np.sort(PQhat, axis=None)
+    i = np.argmax(p_list)
+    return sorted[i]
+
+def get_thres_pval(PQhat, thres):
+    M = PQhat.shape[0]//2
+    Phat = PQhat[:M]>thres
+    Qhat = PQhat[M:]>thres
+    #print(Phat,Qhat)
+    a = torch.mean(Qhat, dtype=torch.float32).item() # sig->sig
+    b = torch.mean(Phat, dtype=torch.float32).item() # bkg->bkg
+    E = 100*a+1000*(1-b)
+    p_val = scipy.stats.binom.cdf(E, 1100, 1-b)
+    return p_val 
