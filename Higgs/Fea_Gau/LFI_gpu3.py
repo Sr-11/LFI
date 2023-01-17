@@ -312,7 +312,7 @@ if __name__ == "__main__":
     except:
         print("Warning: No title given, using default")
         title = 'untitled_run'
-    n = 1000000
+    n = 3000
     m_list = [800] # 不做LFI没有用
     N_epoch = 601
     print(n)

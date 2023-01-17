@@ -14,6 +14,10 @@ np.random.seed(seed)
 torch.backends.cudnn.deterministic=True
 dtype = torch.float
 device = torch.device("cuda:0")
+import time
+# limit to 1 core
+torch.set_num_threads(1)
+
 
 class ConvNet_CIFAR10(nn.Module):
     def __init__(self):
@@ -48,11 +52,18 @@ def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
         return mmd_val - 2.0 * mmd_var
 
 def mmdGS(X, Y, model_u, n, sigma, cst, device, dtype):
+    #a = time.time()
     S = np.concatenate((X, Y), axis=0)
     S = MatConvert(S, device, dtype)
+    #b = time.time()
     Fea = model_u(S)
     n = X.shape[0]
-    return MMDs(Fea, n, S, sigma, cst, is_var_computed=False)
+    mmd =  MMDs(Fea, n, S, sigma, cst, is_var_computed=False)
+    #c = time.time()
+    # print('MatConvert time', b-a)
+    # print('MMD time', c-b)
+    # print('_________')
+    return mmd
 
 def load_diffusion_cifar_32():
     diffusion = np.load("../Diffusion/ddpm_generated_images2.npy").transpose(0,3,1,2)
@@ -127,7 +138,9 @@ for k in range(1, 11):
     m_list=list(range(2, 62, 2))
     cst = 1.0
     F1 = './data/1result_MMDG_'+str(n)+'_'+str(k)+'.txt'
-
+    print('--------------------------')
+    print(' Start Testing n=%d'%n)
+    print('--------------------------')
     fwrite('', F1, message='New File '+str(n))
     if True:
         N_f = float(N)
@@ -152,6 +165,7 @@ for k in range(1, 11):
                         mmd_YZ = mmdGS(Y, Z_temp, model_u, n, sigma, cst, device, dtype)[0]
                         stat.append(float(mmd_XZ - mmd_YZ))
                     thres = np.percentile(stat, 95)
+                    #print(k)
                     if k%50==0:
                         print('threshold 95 is:', thres, k)
                     mmd_XZ = mmdGS(X, Z1, model_u, n, sigma, cst, device, dtype)[0]
@@ -170,3 +184,10 @@ for k in range(1, 11):
                 fwrite(st2, F1)
                 fwrite(st3, F1)
                 fwrite(st4, F1)
+                print('k, i, m = ', k, i, m)
+                print('------------------------------------')
+
+
+
+import torch
+A = torch.tensor([[1, 2, 3], [4, 5, 6]])
