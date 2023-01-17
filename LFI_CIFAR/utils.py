@@ -112,9 +112,10 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
         Ky = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
         Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma))
     else:
-        Kx = cst*torch.exp(-Dxx / sigma0)
-        Ky = cst*torch.exp(-Dyy / sigma0)
-        Kxy = cst*torch.exp(-Dxy / sigma0)
+        Kx = torch.exp(-Dxx_org / sigma)
+        Ky = torch.exp(-Dyy_org / sigma)
+        Kxy = torch.exp(-Dxx_org / sigma)
+
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
 def MMDs(Fea, batch_n, Fea_org, sigma, cst, is_var_computed=True, use_1sample_U=True):
@@ -128,5 +129,60 @@ def MMDs(Fea, batch_n, Fea_org, sigma, cst, is_var_computed=True, use_1sample_U=
     Kxy = cst * torch.exp(-Dxy / sigma) #has shape batch_n x batch_n
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
-def MMD_General(Fea, n, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True):
-    return MMDu(Fea, n, Fea_org, sigma, sigma0, epsilon, is_smooth, is_var_computed=False, use_1sample_U=False)
+def MMD_General(Fea, n, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10),use1sample=False, is_smooth=True):
+    return MMDu(Fea, n, Fea_org, sigma, sigma0, epsilon, is_smooth, is_var_computed=False, use_1sample_U=use1sample)
+
+def MMD_LFI(Fea, n, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0, is_smooth=True, one_sample=False):
+    X = Fea[0:n, :] # fetch the sample 1 (features of deep networks)
+    Y = Fea[n:2*n, :] # fetch the sample 2 (features of deep networks)
+    Z = Fea[2*n:, :] # fetch the sample 3 (features of deep networks)
+    X_org = Fea_org[0:n, :] # fetch the original sample 1
+    Y_org = Fea_org[n:2*n, :] # fetch the original sample 2
+    Z_org = Fea_org[2*n:, :] # fetch the original sample 3
+    L = 1 # generalized Gaussian (if L>1)
+    Dxx = Pdist2(X, X)
+    Dyy = Pdist2(Y, Y)
+    Dxz = Pdist2(X, Z)
+    Dyz = Pdist2(Y, Z)
+    Dxx_org = Pdist2(X_org, X_org)
+    Dyy_org = Pdist2(Y_org, Y_org)
+    Dxz_org = Pdist2(X_org, Z_org)
+    Dyz_org = Pdist2(Y_org, Z_org)
+    if is_smooth:
+        Kx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma))
+        Ky = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
+        Kxz = cst*((1-epsilon) * torch.exp(-(Dxz / sigma0) - (Dxz_org / sigma))**L + epsilon * torch.exp(-Dxz_org / sigma))
+        Kyx = cst*((1-epsilon) * torch.exp(-(Dyz / sigma0) - (Dyz_org / sigma))**L + epsilon * torch.exp(-Dyz_org / sigma))
+    else:
+        Kx = cst*torch.exp(-Dxx / sigma0)
+        Ky = cst*torch.exp(-Dyy / sigma0)
+    return MMD_LFI_SQUARE(Kx, Ky, Kxz, Kyx, n, len(Fea)-2*n, one_sample_U=one_sample)
+
+
+def MMD_LFI_SQUARE(Kx, Ky, Kyz, Kxz, batch_n, batch_m, one_sample_U=False):
+    nx = batch_n
+    nz = batch_m
+    if one_sample_U:
+        xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
+        yy = torch.div((torch.sum(Ky) - torch.sum(torch.diag(Ky))), (nx * (nx - 1)))
+        # one-sample U-statistic.
+        xz = torch.div((torch.sum(Kxz) - torch.sum(torch.diag(Kxz))), (nx * (nz - 1)))
+        yz = torch.div((torch.sum(Kyz) - torch.sum(torch.diag(Kyz))), (nx * (nz - 1)))
+        mmd2 = xx - yy + 2* xz - 2* yz
+    else:
+        xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
+        yy = torch.div((torch.sum(Ky) - torch.sum(torch.diag(Ky))), (nx * (nx - 1)))
+        xz = torch.div((torch.sum(Kxz)), (nx * nz))
+        yz = torch.div((torch.sum(Kyz)), (nx * nz))
+        mmd2 = xx - yy + 2* xz - 2* yz
+    return mmd2
+
+def fwrite(line_, file_, message='New File'):
+    if line_ == '':
+        with open(file_, 'w') as f:
+            f.write(message)
+            f.write('\n')
+    else:
+        with open(file_, 'a') as f:
+            f.write(line_)
+            f.write('\n')

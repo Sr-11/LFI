@@ -51,17 +51,22 @@ def blob(n):
     return Hsample_blobs_Q(n, sigma_mx_2)
 
 def load_diffusion_cifar():
-    diffusion = np.load("../Diffusion/ddpm_generated_images.npy")
-    try:
-        trainset = datasets.CIFAR10(root='../data', train=True, download=False)
-    except:
-        trainset = datasets.CIFAR10(root='../data', train=True, download=True)
-    cifar10 = np.zeros((50000,32,32,3))
-    for i in range(50000):
-        cifar10[i] = np.asarray(trainset[i][0])
-
-    diffusion = diffusion.transpose(0,3,1,2)
-    cifar10 = cifar10.transpose(0,3,1,2)
+    diffusion = np.load("../Diffusion/ddpm_generated_images.npy").transpose(0,3,1,2)
+    cifar10 = np.load('../data/cifar_data.npy')
     dataset_P = diffusion.reshape(diffusion.shape[0], -1)
     dataset_Q = cifar10.reshape(cifar10.shape[0], -1)
-    return dataset_P, dataset_Q
+    return dataset_Q, dataset_P
+
+def view(image):
+    #Given (32, 32, 3) image, view it
+    #Given (3, 32, 32) image, view it after transposing
+    if image.shape[0] == 3:
+        image = image.transpose(1,2,0)
+    print(image/256)
+    plt.imshow(image/256)
+    plt.show()
+    
+if __name__ == '__main__':
+    print(np.load("../Diffusion/ddpm_generated_images.npy").shape) # (4000, 32, 32, 3)
+    print(np.load('../data/cifar_data.npy').shape) # (50000, 3, 32, 32)
+
