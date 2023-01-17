@@ -8,7 +8,10 @@ dtype = torch.float
 device = torch.device("cuda:0")
 seed = 42
 torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
 np.random.seed(seed)
+
+torch.backends.cudnn.deterministic=True
 dtype = torch.float
 device = torch.device("cuda:0")
 
@@ -123,7 +126,7 @@ for k in range(1, 11):
     model_u, sigma=train_d(n, learning_rate=5e-4, N=500, N_epoch=100, batch_size=32)
     m_list=list(range(2, 62, 2))
     cst = 1.0
-    F1 = './data/result_MMDG_'+str(n)+'_'+str(k)+'.txt'
+    F1 = './data/1result_MMDG_'+str(n)+'_'+str(k)+'.txt'
 
     fwrite('', F1, message='New File '+str(n))
     if True:
