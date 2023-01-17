@@ -323,7 +323,7 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
                 print('------------------------------------')
                 begin_time = time.time()
                 save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,t+load_epoch)
-                plt.plot(range(t), J_star_u[kk, :][0:t], label='J')
+                #plt.plot(range(t), J_star_u[kk, :][0:t], label='J')
                 plt.plot(range(t), mmd_val_record[kk, 0:t], label='MMD')
                 plt.plot(np.arange(N_epoch)[mmd_val_validations!=0], mmd_val_validations[mmd_val_validations!=0], label='MMD_validation')
                 plt.plot(np.arange(N_epoch)[J_validations!=0] , J_validations[J_validations!=0], label='J_valid')
@@ -402,7 +402,7 @@ if __name__ == "__main__":
     m_list = [800] # 不做LFI没有用
     N_epoch = 401
 
-    for n in [3000, 6000, 10000, 30000, 60000, 2000000]:
+    for n in [3000, 1000, 600, 300, 100]:
         if n > 100000:
             N_epoch = 201; print_every = 5
         train(n, [50], 
@@ -411,15 +411,15 @@ if __name__ == "__main__":
             N = 100, # 不做LFI没有用
             N_epoch = N_epoch, # 只load就设成1
             print_every = 10, 
-            batch_size = min(n,1024), 
-            learning_rate = 2e-3, 
-            SGD = True, 
+            batch_size = n, 
+            learning_rate = 1e-2, 
+            SGD = False, 
             gen_fun = gen_fun, 
             seed = random_seed,
             dataset_P = dataset_P, dataset_Q = dataset_Q, #Mixture
             load_epoch = 0, load_n=n,
             step_size=1, gamma=1,
-            momentum=0.99, weight_decay=0.000)
+            momentum=0.999, weight_decay=0.000)
 
     print('################## Start test ##################')
     gc.collect()

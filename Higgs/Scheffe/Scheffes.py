@@ -178,9 +178,9 @@ if __name__ == "__main__":
 
     elif title == 'train':
         print('-------------------train--------------------')
-        for n in [1300100, 1000100, 7000100]:
+        for n in [1300100, 1000100, 700100]:
             X, Y = dataset_P[:n], dataset_Q[:n]
-            batch_size = 1024
+            batch_size = 100
             batches = n//batch_size
             total_S = [(X[i*batch_size:(i+1)*batch_size], 
                         Y[i*batch_size:(i+1)*batch_size]) 
@@ -198,6 +198,6 @@ if __name__ == "__main__":
             model = DN().to(device)
             #model.load_state_dict(torch.load('./Scheffe/checkpoint%d/'%n+str(130)+'/'+'model.pt'))
             model = train(model, total_S, total_labels, validation_S, validation_labels,
-                        batch_size=batch_size, lr=2e-3, epochs=101, load_epoch=0, save_per=10, momentum=0.99)
+                        batch_size=batch_size, lr=2e-4, epochs=1001, load_epoch=0, save_per=10, momentum=0.99)
 
             
