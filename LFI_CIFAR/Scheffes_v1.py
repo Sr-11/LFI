@@ -158,22 +158,22 @@ def likelihood_T(model, Z_T):
     '''
     with torch.no_grad():
         output_Z = model(Z_T.to(device)) #has shape (batch_size, 2)
-        prob = torch.softmax(output_Z, dim=1)[:,0] #Probability of class 0
-        return np.mean(prob.detach().cpu().numpy())
+        #prob = torch.softmax(output_Z, dim=1)[:,0] #Probability of class 0
+        prob = torch.mean(output_Z[:, 0]-output_Z[:, 1])
+        return prob+0.5
     
 
 n=256
-m_list = list(range(4,64, 4))
+m_list = list(range(4,68, 4))
 for k in range(10):
-        F1 = './data/RRresult_SCH_'+str(n)+'_'+str(k)+'_.txt'
-        F2 = './data/RRresult_LBI_'+str(n)+'_'+str(k)+'_.txt'
+        F1 = './data/RREresult_SCH_'+str(n)+'_'+str(k)+'_.txt'
+        #F2 = './data/RREresult_LBIE_'+str(n)+'_'+str(k)+'_.txt'
 
         fwrite('', F1, message='New File '+str(n))
-        fwrite('', F2, message='New File '+str(n))
+        #fwrite('', F2, message='New File '+str(n))
         if True:
             X, Y = gen_fun1(n)
-            model=train(X, Y, criterion, batch_size=32, lr=0.0001, epochs=100)
-
+            model=train(X, Y, criterion, batch_size=32, lr=0.0001, epochs=300)
             for m in m_list:
                 H=[]
                 for i in range(1000):
@@ -193,8 +193,8 @@ for k in range(10):
                     H[1].append(ty<thres)
                     T[0].append(tx>0.5)
                     T[1].append(ty<0.5)
-                    P[0].append(np.searchsorted(stat, tx)/1000.0)
-                    P[1].append(np.searchsorted(stat, ty)/1000.0)
+                    P[0].append(np.searchsorted(stat, tx)/2000.0+np.searchsorted(stat, tx, side='right')/2000.0)
+                    P[1].append(np.searchsorted(stat, ty)/2000.0+np.searchsorted(stat, ty, side='right')/2000.0)
                 st1="n, m= "+str(n)+str('  ')+str(m)+" --- P(max|Z~X):  "+str(np.mean(T[0]))
                 st2="n, m= "+str(n)+str('  ')+str(m)+" --- P(max|Z~Y):  "+str(np.mean(T[1]))
                 st3="n, m= "+str(n)+str('  ')+str(m)+" --- P(95|Z~X):  "+str(np.mean(H[0]))
@@ -208,6 +208,7 @@ for k in range(10):
                 fwrite(st5, F1)
                 fwrite(st6, F1)
             print('Done with Scheffe')
+            '''
             for m in m_list:
                 H=[]
                 for i in range(1000):
@@ -242,3 +243,4 @@ for k in range(10):
                 fwrite(st5, F2)
                 fwrite(st6, F2)
             print('Done with likelihood')
+            '''
