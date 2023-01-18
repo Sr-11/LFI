@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 import torch.nn as nn
 dtype = torch.float
 device = torch.device("cuda:0")
-seed = 42
+seed = 4
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 np.random.seed(seed)
