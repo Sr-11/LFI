@@ -11,3 +11,4 @@ Higgs/checkpoint/
 *.pt
 *.png
 *.npy
+*.csv
