@@ -8,7 +8,7 @@ is_cuda = True
 import scipy
 import gc
 from tqdm import trange
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0")
 dtype = torch.float32
 
 class ConstModel(torch.nn.Module):
@@ -200,18 +200,18 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
     Dxx_org = Pdist2(X_org, X_org)
     Dyy_org = Pdist2(Y_org, Y_org)
     Dxy_org = Pdist2(X_org, Y_org)
-    # if is_smooth:
-    #     Kx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma))
-    #     Ky = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
-    #     Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma))
-    # else:
-    Kx = cst*torch.exp(-Dxx / sigma0)
-    Ky = cst*torch.exp(-Dyy / sigma0)
-    Kxy = cst*torch.exp(-Dxy / sigma0)
-    # if kwarg == 'Gaussian':
-    #     Kx = torch.exp(-Dxx_org / sigma)
-    #     Ky = torch.exp(-Dyy_org / sigma)
-    #     Kxy = torch.exp(-Dxy_org / sigma)
+    if is_smooth:
+        Kx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma))
+        Ky = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
+        Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma))
+    else:
+        Kx = cst*torch.exp(-Dxx / sigma0)
+        Ky = cst*torch.exp(-Dyy / sigma0)
+        Kxy = cst*torch.exp(-Dxy / sigma0)
+    if kwarg == 'Gaussian':
+        Kx = torch.exp(-Dxx_org / sigma)
+        Ky = torch.exp(-Dyy_org / sigma)
+        Kxy = torch.exp(-Dxy_org / sigma)
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
 
@@ -366,7 +366,7 @@ def compute_gamma(X, Y, model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, c
 
 def compute_score_func(Z, X, Y, 
                     model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst,
-                    L=1,
+                    L=1, 
                     verbose = False): 
     with torch.no_grad():
     
@@ -476,10 +476,10 @@ def get_thres_at_once(X_eval, Y_eval,
 
 def get_pval(X_score, Y_score, norm_or_binom=True, thres=None, verbose = False): # thres过的
     if norm_or_binom==True: # 高斯
-        X_mean = np.mean(X_score)
-        X_std = np.std(X_score)
-        Y_mean = np.mean(Y_score)
-        Y_std = np.std(Y_score)
+        X_mean = torch.mean(X_score, dtype=dtype)
+        X_std = torch.std(X_score)
+        Y_mean = torch.mean(Y_score, dtype=dtype)
+        Y_std = torch.std(Y_score)
         # 直接算平均的P的分数和方差，平均的Q的分数，然后加权
         Z_score = (10*X_mean + Y_mean)/11
         p_value = (Z_score-X_mean)/X_std*np.sqrt(1100)
@@ -494,7 +494,6 @@ def get_pval(X_score, Y_score, norm_or_binom=True, thres=None, verbose = False):
             print('----------------------------------')
         return p_value
     if norm_or_binom==False: # 二项
-        print(X_score>thres)
         a = torch.mean(Y_score>thres, dtype=dtype).item() # sig->sig
         b = torch.mean(X_score<thres, dtype=dtype).item() # bkg->bkg
         E = 100*a + 1000*(1-b)
@@ -502,23 +501,33 @@ def get_pval(X_score, Y_score, norm_or_binom=True, thres=None, verbose = False):
         p_val = scipy.stats.norm.ppf(p_val)
         return p_val 
 
+###########
 def get_pval_at_once(X_eval, Y_eval, X_test, Y_test,
                       model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst,
-                      XY_sub_size = 10000, XY_MonteCarlo = 100, batch_size = 10000,
+                      batch_size = 10000,
                       norm_or_binom=True):
     thres,_,_ = get_thres_at_once(X_eval, Y_eval,
                         model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst)
     n_test = X_test.shape[0]
-    Scores = torch.zeros(n_test)
     batch_size = batch_size
     XY_test = torch.cat((X_test, Y_test), axis=0)
-    for i in range(1+(n_test-1)//batch_size):
+    Scores = torch.zeros(2*n_test)
+    for i in range(1+(2*n_test-1)//batch_size):
         Scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(XY_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
                                                         model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst) 
     X_scores = Scores[:n_test]
     Y_scores = Scores[n_test:]    
+    del Scores
+    gc.collect()
+    plt.hist(X_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='X')
+    plt.hist(Y_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='Y')
+    plt.axvline(x=thres, color='r', linestyle='--')
+    plt.legend()
+    plt.show()
+
     pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
     return pval
+###############
 
 def get_thres_pval(PQhat, thres, pi=1/11, m=1100):
     M = PQhat.shape[0]//2
@@ -537,13 +546,18 @@ def get_thres_pval(PQhat, thres, pi=1/11, m=1100):
     return p_val 
 
     
+
+    
 def early_stopping(validation_losses, epoch):
     i = np.argmin(validation_losses)
     print(i)
-    if epoch - i > 10:
+    if epoch - i >= 5:
         return True
     else:
         return False
+
+
+
 
 
 def plot_hist(P_scores, Q_scores):

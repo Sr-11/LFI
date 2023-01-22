@@ -187,7 +187,7 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
         S1_v = np.concatenate((dataset_P[np.random.choice(n, 10000, replace=False)], 
                                 dataset_Q[np.random.choice(n, 10000, replace=False)]), axis=0)
         S1_v = MatConvert(S1_v, device, dtype)
-        J_validations = np.zeros([N_epoch])
+        J_validations = np.ones([N_epoch])*np.inf
         mmd_val_validations = np.zeros([N_epoch])
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer_u, step_size=step_size, gamma=gamma)
         #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_u, T_max=10, eta_min=0)
@@ -230,31 +230,34 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
                 J_star_u[kk, t] = STAT_u.item()
                 mmd_val_record[kk, t] = mmd_val.item()
                 mmd_var_record[kk, t] = mmd_var.item()
+            if early_stopping(J_validations, t):
+                save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,0)
+                break
             # Print MMD, std of MMD and J
-            if t % print_every == 0:
-                time_per_epoch = (time.time() - begin_time)/print_every# print
-                print('------------------------------------')
-                print('Epoch:', t ,'+',load_epoch)
-                print("mmd_value: ", mmd_val.item())
-                print("mmd_var: ", mmd_var.item())
-                print("Objective: ", STAT_u.item())
-                print("time_per_epoch: ", time_per_epoch)
-                print('ep: ', ep.item())
-                print('sigma: ', sigma.item())
-                print('sigma0: ', sigma0_u.item())
-                print('------------------------------------')
-                begin_time = time.time()
-                save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,t+load_epoch)
-                plt.plot(range(t), J_star_u[kk, :][0:t], label='J')
-                plt.plot(range(t), mmd_val_record[kk, 0:t], label='MMD')
-                plt.plot(np.arange(N_epoch)[mmd_val_validations!=0], mmd_val_validations[mmd_val_validations!=0], label='MMD_validation')
-                plt.plot(np.arange(N_epoch)[J_validations!=0] , J_validations[J_validations!=0], label='J_valid')
-                plt.title('%f'%(np.min(J_validations)))        
-                plt.xlabel(t+load_epoch)
-                plt.legend()
-                plt.savefig('./checkpoint%d/loss-epoch.png'%n_backup)
-                plt.show()
-                plt.clf()
+            # if t % print_every == 0:
+            #     time_per_epoch = (time.time() - begin_time)/print_every# print
+            #     print('------------------------------------')
+            #     print('Epoch:', t ,'+',load_epoch)
+            #     print("mmd_value: ", mmd_val.item())
+            #     print("mmd_var: ", mmd_var.item())
+            #     print("Objective: ", STAT_u.item())
+            #     print("time_per_epoch: ", time_per_epoch)
+            #     print('ep: ', ep.item())
+            #     print('sigma: ', sigma.item())
+            #     print('sigma0: ', sigma0_u.item())
+            #     print('------------------------------------')
+            #     begin_time = time.time()
+            #     save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,t+load_epoch)
+            #     plt.plot(range(t), J_star_u[kk, :][0:t], label='J')
+            #     plt.plot(range(t), mmd_val_record[kk, 0:t], label='MMD')
+            #     plt.plot(np.arange(N_epoch)[mmd_val_validations!=0], mmd_val_validations[mmd_val_validations!=0], label='MMD_validation')
+            #     plt.plot(np.arange(N_epoch)[J_validations!=0] , J_validations[J_validations!=0], label='J_valid')
+            #     plt.title('%f'%(np.min(J_validations)))        
+            #     plt.xlabel(t+load_epoch)
+            #     plt.legend()
+            #     plt.savefig('./checkpoint%d/loss-epoch.png'%n_backup)
+            #     plt.show()
+            #     plt.clf()
                 #print('-------------start test------------------')
                 #if t>0:
                 #    run_saved_model(n_backup, 100, epoch=t, N=100)
@@ -271,22 +274,6 @@ def train(n, m_list, title='Default', learning_rate=5e-4,
         s_OPT[kk] = sigma.item()
         s0_OPT[kk] = sigma0_u.item()
 
-        print('################## Start test ##################')
-        run_saved_model(n_backup, 100, (N_epoch//100)*100, N=10)
-
-def standardize(X):
-    for j in range(X.shape[1]):
-        if j >0:
-            vec = X[:, j]
-            if np.min(vec) < 0:
-                # Assume data is Gaussian or uniform -- center and standardize.
-                vec = vec - np.mean(vec)
-                vec = vec / np.std(vec)
-            elif np.max(vec) > 1.0:
-                # Assume data is exponential -- just set mean to 1.
-                vec = vec / np.mean(vec)
-            X[:,j] = vec
-    return X
 
 if __name__ == "__main__":
     # load data, please use .npy ones (40000), .gz (10999999)(11e6) is too large.
@@ -318,24 +305,23 @@ if __name__ == "__main__":
     N_epoch = 1001
     print(n)
 
-    train(n, [50], 
-        title = title, 
-        K = 1, 
-        N = 100, # 不做LFI没有用
-        N_epoch = N_epoch, # 只load就设成1
-        print_every = 5, 
-        batch_size = 1024, 
-        learning_rate = 1e-3, 
-        SGD = False, 
-        gen_fun = gen_fun, 
-        seed = random_seed,
-        dataset_P = dataset_P, dataset_Q = dataset_Q,
-        load_epoch = 0, load_n=n,
-        step_size=1, gamma=1,
-        momentum=0.999, weight_decay=0.000)
-
-    print('################## Start test ##################')
-    gc.collect()
-    torch.cuda.empty_cache()
-    run_saved_model(n, 100, epoch=30, N=20)
-    
+    n_list = []
+    for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
+        for i in range(10):
+            n_list.append(n+i+1)
+    for n in n_list:
+        train(n, [50], 
+            title = title, 
+            K = 1, 
+            N = 100, # 不做LFI没有用
+            N_epoch = N_epoch, # 只load就设成1
+            print_every = 5, 
+            batch_size = 1024, 
+            learning_rate = 1e-3, 
+            SGD = False, 
+            gen_fun = gen_fun, 
+            seed = random_seed,
+            dataset_P = dataset_P, dataset_Q = dataset_Q,
+            load_epoch = 0, load_n=n,
+            step_size=1, gamma=1,
+            momentum=0.999, weight_decay=0.000)
