@@ -14,10 +14,6 @@ np.random.seed(seed)
 torch.backends.cudnn.deterministic=True
 dtype = torch.float
 device = torch.device("cuda:0")
-import time
-# limit to 1 core
-torch.set_num_threads(1)
-
 
 class ConvNet_CIFAR10(nn.Module):
     def __init__(self):
@@ -52,18 +48,11 @@ def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
         return mmd_val - 2.0 * mmd_var
 
 def mmdGS(X, Y, model_u, n, sigma, cst, device, dtype):
-    #a = time.time()
     S = np.concatenate((X, Y), axis=0)
     S = MatConvert(S, device, dtype)
-    #b = time.time()
     Fea = model_u(S)
     n = X.shape[0]
-    mmd =  MMDs(Fea, n, S, sigma, cst, is_var_computed=False)
-    #c = time.time()
-    # print('MatConvert time', b-a)
-    # print('MMD time', c-b)
-    # print('_________')
-    return mmd
+    return MMDs(Fea, n, S, sigma, cst, is_var_computed=False)
 
 def mmdGST(X, Y, model_u, n, sigma, cst, device, dtype):
     #Same as mmdGS but X and Y are already in torch format
@@ -77,7 +66,7 @@ def load_diffusion_cifar_32():
     cifar10 = np.load('../data/cifar_data.npy')
     dataset_P = diffusion.reshape(diffusion.shape[0], -1)
     dataset_Q = cifar10.reshape(cifar10.shape[0], -1)
-    return dataset_P, dataset_Q
+    return dataset_Q, dataset_P
 
 DP, DQ = load_diffusion_cifar_32()
 DP1 = DP[:4000, :]
@@ -158,17 +147,10 @@ for k in range(1, 11):
     n=256
     N=500
     model_u, sigma, X, Y=train_d(n, learning_rate=5e-4, N=500, N_epoch=100, batch_size=32)
-    m_list=list(range(4, 64, 4))
+    m_list=list(range(4, 68, 4))
     cst = 1.0
-<<<<<<< HEAD
-    F1 = './data/1result_MMDG_'+str(n)+'_'+str(k)+'.txt'
-    print('--------------------------')
-    print(' Start Testing n=%d'%n)
-    print('--------------------------')
-=======
-    F1 = './data/RRresult_MMDG_'+str(n)+'_'+str(k)+'.txt'
+    F1 = './data/RuiResult_MMDG_'+str(n)+'_'+str(k)+'.txt'
 
->>>>>>> b4dca0f9fe1777458133230ed6f948d065083d24
     fwrite('', F1, message='New File '+str(n))
     if True:
         N_f = float(N)
@@ -190,7 +172,8 @@ for k in range(1, 11):
                     Z1, Z2 = XX1[n:], YY1[n:] 
                     stat=[]
                     for j in range(100):
-                        Z_temp = X1[np.random.permutation(n)][:m]
+                        #Z_temp = X1[np.random.permutation(n)][:m]
+                        Z_temp, _ = gen_fun2_t(m)
                         mmd_XZ = mmdGST(X, Z_temp, model_u, n, sigma, cst, device, dtype)[0] 
                         mmd_YZ = mmdGST(Y, Z_temp, model_u, n, sigma, cst, device, dtype)[0]
                         stat.append(float(mmd_XZ - mmd_YZ))
