@@ -8,7 +8,6 @@ is_cuda = True
 import scipy
 import gc
 from tqdm import trange
-import time
 device = torch.device("cuda:0")
 dtype = torch.float32
 
@@ -425,41 +424,46 @@ def compute_score_func(Z, X, Y,
         gc.collect()
         return phi_Z
 
-def get_thres_and_x_and_y(PQhat):
+def get_auc_and_x_and_y(PQhat):
     M = PQhat.shape[0]//2
-    inf = np.min(PQhat)
-    sup = np.max(PQhat)
-    thres = np.linspace(inf, sup, 1000)
-    thres = thres[100:900]
-    x = np.zeros(thres.shape)
-    y = np.zeros(thres.shape)
-    for i in range(thres.shape[0]):
-        x[i] = np.sum(PQhat[M:] > thres[i]) / M
-        y[i] = np.sum(PQhat[:M] < thres[i]) / M
-    return thres, x, y
+    outcome = np.concatenate((np.zeros(M), np.ones(M)))
+    df = pd.DataFrame(PQhat, columns=['Higgs_Default'])
+    roc = pyroc.ROC(outcome, df)
+    auc = roc.auc
+    pred = roc.preds['Higgs_Default'] # 长度是2M
+    #print(pred.shape)
+    fpr, tpr = roc._roc(pred) # False positive rate, True positive rate
+    #print(fpr.shape, tpr.shape)
+    signal_to_signal_rate = tpr # 1认成1
+    background_to_background_rate = 1 - fpr # 0认成0 = 1 - 0认成1
+    return auc, signal_to_signal_rate, background_to_background_rate
 
 def get_thres(PQhat):
-    gc.collect()
-    thres, x, y = get_thres_and_x_and_y(PQhat)
+    auc, x, y = get_auc_and_x_and_y(PQhat)
     E = 100*x+1000*(1-y)
     p_val = scipy.stats.binom.cdf(E, 1100, 1-y)
     p_list = scipy.stats.norm.ppf(p_val)
     p_list[p_list==np.inf] = 0
     #p_list = p_list[p_list.shape[0]//10 : p_list.shape[0]//10*9]
+    sorted = np.sort(np.unique(PQhat), axis=None)
     i = np.argmax(p_list)
-    print('thres=', thres[i], ',max=', np.max(PQhat), ',min=', np.min(PQhat))
-    plt.plot(thres, p_list)
-    plt.axvline(x=thres[i], color='r', label='thres')
+
+    print(sorted[i], np.max(PQhat), np.min(PQhat))
+    print('thres=', sorted[i], ',max=', np.max(PQhat), ',min=', np.min(PQhat))
+    plt.plot(sorted, p_list)
+    plt.axvline(x=sorted[i], color='r', label='thres')
     plt.savefig('p-thres.png')
     print('In get_thres(), p-thres.png saved')
     plt.show()
-    return thres[i], x[i], y[i]
 
-def get_thres_at_once(X_eval, Y_eval, X_test, Y_test, 
+    return sorted[i], x[i], y[i]
+
+def get_thres_at_once(X_eval, Y_eval,
                       model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst,
-                      batch_size = 10000):
+                      XY_sub_size = 10000, XY_MonteCarlo = 100, batch_size = 10000):
     # 用X，Y做n_eval, [X,Y]做phi(Z), 求ROC
-    XY_test = torch.concatenate((X_test, Y_test), axis=0)
+    assert X_eval.shape[0] == Y_eval.shape[0]
+    XY_test = torch.concatenate((X_eval, Y_eval), axis=0)
     n_test = XY_test.shape[0]
     Scores = torch.zeros(n_test)
     batch_size = batch_size
@@ -498,44 +502,30 @@ def get_pval(X_score, Y_score, norm_or_binom=True, thres=None, verbose = False):
         return p_val 
 
 ###########
-def get_pval_at_once(X_eval, Y_eval, X_eval_test, Y_eval_test, X_test, Y_test,
+def get_pval_at_once(X_eval, Y_eval, X_test, Y_test,
                       model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst,
                       batch_size = 10000,
                       norm_or_binom=True):
-    a = time.time()
-    thres = np.inf
-    if norm_or_binom==False:
-        thres,_,_ = get_thres_at_once(X_eval, Y_eval, X_eval_test, Y_eval_test,
+    thres,_,_ = get_thres_at_once(X_eval, Y_eval,
                         model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst)
     n_test = X_test.shape[0]
     batch_size = batch_size
-    X_scores = torch.zeros(n_test)
-    Y_scores = torch.zeros(n_test)
-    b = time.time()
-    for i in range(1+(n_test-1)//batch_size):
-        X_scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(X_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
+    XY_test = torch.cat((X_test, Y_test), axis=0)
+    Scores = torch.zeros(2*n_test)
+    for i in range(1+(2*n_test-1)//batch_size):
+        Scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(XY_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
                                                         model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst) 
-        Y_scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(Y_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
-                                                        model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst)
+    X_scores = Scores[:n_test]
+    Y_scores = Scores[n_test:]    
+    del Scores
     gc.collect()
-    c = time.time()
-    if norm_or_binom==True and epsilonOPT=='Scheffe':
-        X_scores = torch.log(X_scores/(1-X_scores))
-        Y_scores = torch.log(Y_scores/(1-Y_scores))
-        pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
-    else:
-        pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
-    d = time.time()
-    print('time for get thres:', b-a)
-    print('time for get scores:', c-b)
-    print('time for get pval:', d-c)
     plt.hist(X_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='X')
     plt.hist(Y_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='Y')
     plt.axvline(x=thres, color='r', linestyle='--')
-    plt.title('p-value = '+str(pval))
     plt.legend()
     plt.show()
 
+    pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
     return pval
 ###############
 
@@ -561,7 +551,7 @@ def get_thres_pval(PQhat, thres, pi=1/11, m=1100):
 def early_stopping(validation_losses, epoch):
     i = np.argmin(validation_losses)
     print(i)
-    if epoch - i > 10:
+    if epoch - i >= 5:
         return True
     else:
         return False
@@ -588,17 +578,3 @@ def plot_hist(P_scores, Q_scores):
     plt.savefig('./hist.png')
     print('saved hist.png...')
     return fig
-
-def get_auc_and_x_and_y(PQhat):
-    M = PQhat.shape[0]//2
-    outcome = np.concatenate((np.zeros(M), np.ones(M)))
-    df = pd.DataFrame(PQhat, columns=['Higgs_Default'])
-    roc = pyroc.ROC(outcome, df)
-    auc = roc.auc
-    pred = roc.preds['Higgs_Default'] # 长度是2M
-    #print(pred.shape)
-    fpr, tpr = roc._roc(pred) # False positive rate, True positive rate
-    #print(fpr.shape, tpr.shape)
-    signal_to_signal_rate = tpr # 1认成1
-    background_to_background_rate = 1 - fpr # 0认成0 = 1 - 0认成1
-    return auc, signal_to_signal_rate, background_to_background_rate

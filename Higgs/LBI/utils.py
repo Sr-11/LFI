@@ -457,7 +457,7 @@ def get_thres(PQhat):
 
 def get_thres_at_once(X_eval, Y_eval, X_test, Y_test, 
                       model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst,
-                      batch_size = 10000):
+                      XY_sub_size = 10000, XY_MonteCarlo = 100, batch_size = 10000):
     # 用X，Y做n_eval, [X,Y]做phi(Z), 求ROC
     XY_test = torch.concatenate((X_test, Y_test), axis=0)
     n_test = XY_test.shape[0]
@@ -519,22 +519,17 @@ def get_pval_at_once(X_eval, Y_eval, X_eval_test, Y_eval_test, X_test, Y_test,
                                                         model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst)
     gc.collect()
     c = time.time()
-    if norm_or_binom==True and epsilonOPT=='Scheffe':
-        X_scores = torch.log(X_scores/(1-X_scores))
-        Y_scores = torch.log(Y_scores/(1-Y_scores))
-        pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
-    else:
-        pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
+    plt.hist(X_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='X')
+    plt.hist(Y_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='Y')
+    plt.axvline(x=thres, color='r', linestyle='--')
+    plt.legend()
+    plt.show()
+
+    pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
     d = time.time()
     print('time for get thres:', b-a)
     print('time for get scores:', c-b)
     print('time for get pval:', d-c)
-    plt.hist(X_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='X')
-    plt.hist(Y_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='Y')
-    plt.axvline(x=thres, color='r', linestyle='--')
-    plt.title('p-value = '+str(pval))
-    plt.legend()
-    plt.show()
 
     return pval
 ###############
@@ -602,3 +597,33 @@ def get_auc_and_x_and_y(PQhat):
     signal_to_signal_rate = tpr # 1认成1
     background_to_background_rate = 1 - fpr # 0认成0 = 1 - 0认成1
     return auc, signal_to_signal_rate, background_to_background_rate
+
+
+    
+def early_stopping(validation_losses, epoch):
+    i = np.argmin(validation_losses)
+    print(i)
+    if epoch - i > 5:
+        return True
+    else:
+        return False
+
+
+def plot_hist(P_scores, Q_scores):
+    fig = plt.figure()
+    plt.hist(P_scores, bins=100, label='P_score', alpha=0.5, color='r')
+    plt.hist(Q_scores, bins=100, label='Q_score', alpha=0.5, color='b')
+    P_mean_score = np.mean(P_scores)
+    Q_mean_score = np.mean(Q_scores)
+    plt.axvline(P_mean_score, color='r', linestyle='--', label='P_mean_score')
+    plt.axvline(Q_mean_score, color='b', linestyle='--', label='Q_mean_score')
+    P_std_score = np.std(P_scores)
+    Q_std_score = np.std(Q_scores)
+    plt.axvline(P_mean_score+P_std_score, color='r', linestyle=':')
+    plt.axvline(Q_mean_score+Q_std_score, color='b', linestyle=':')
+    plt.axvline(P_mean_score-P_std_score, color='r', linestyle=':')
+    plt.axvline(Q_mean_score-Q_std_score, color='b', linestyle=':')
+    plt.legend()
+    plt.savefig('./hist.png')
+    print('saved hist.png...')
+    return fig
