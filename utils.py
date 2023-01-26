@@ -64,19 +64,20 @@ class Classifier(torch.nn.Module):
     def __init__(self, H=300, layers = 5, tanh=True):
         super(Classifier, self).__init__()
         self.restored = False
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(28, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, 1, bias=True),
-            torch.nn.Sigmoid(),
+        if layers == 5 and not tanh:
+            self.model = torch.nn.Sequential(
+                torch.nn.Linear(28, H, bias=True),
+                torch.nn.ReLU(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.ReLU(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.ReLU(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.ReLU(),
+                torch.nn.Linear(H, 1, bias=True),
+                torch.nn.Sigmoid(),
         )
-        if layers == 6:
+        if layers == 6 and not tanh:
             self.model = torch.nn.Sequential(
                 torch.nn.Linear(28, H, bias=True),
                 torch.nn.ReLU(),
@@ -91,7 +92,20 @@ class Classifier(torch.nn.Module):
                 torch.nn.Linear(H, 1, bias=True),
                 torch.nn.Sigmoid(),
             )
-        if tanh:
+        if layers == 5 and tanh:
+            self.model = torch.nn.Sequential(
+                torch.nn.Linear(28, H, bias=True),
+                torch.nn.Tanh(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.Tanh(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.Tanh(),
+                torch.nn.Linear(H, H, bias=True),
+                torch.nn.Tanh(),
+                torch.nn.Linear(H, 1, bias=True),
+                torch.nn.Sigmoid(),
+        )
+        if layers == 6 and tanh:
             self.model = torch.nn.Sequential(
                 torch.nn.Linear(28, H, bias=True),
                 torch.nn.Tanh(),
@@ -430,7 +444,7 @@ def get_thres_and_x_and_y(PQhat):
     inf = np.min(PQhat)
     sup = np.max(PQhat)
     thres = np.linspace(inf, sup, 1000)
-    thres = thres[100:900]
+    thres = thres[10:990]
     x = np.zeros(thres.shape)
     y = np.zeros(thres.shape)
     for i in range(thres.shape[0]):
@@ -560,7 +574,6 @@ def get_thres_pval(PQhat, thres, pi=1/11, m=1100):
     
 def early_stopping(validation_losses, epoch):
     i = np.argmin(validation_losses)
-    print(i)
     if epoch - i > 10:
         return True
     else:

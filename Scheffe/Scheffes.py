@@ -77,7 +77,7 @@ if __name__ == "__main__":
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28), 1
     del dataset
     n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
-    for n in [200000, 50000]:
+    for n in n_list:
         X, Y = dataset_P[:n], dataset_Q[:n]
         batch_size = 1024
         batches = n//batch_size
@@ -95,12 +95,12 @@ if __name__ == "__main__":
                                     ).to(device)
         ##### Train #####
         P_values = np.zeros(10)
-        for i in range(1):
+        for i in range(10):
             n_train = n
             model = DN().to(device)
             model = train(model, total_S, total_labels, validation_S, validation_labels,
                         batch_size=batch_size, lr=2e-3, epochs=301, load_epoch=0, save_per=10, momentum=0.99,
-                        n=n_train+i+1)
+                        n=n_train+i)
             n_eval = 10000
             X_eval = dataset_P[n_train:n_train+n_eval]
             Y_eval = dataset_Q[n_train:n_train+n_eval]

@@ -12,7 +12,7 @@ from utils import *
 import scipy
 import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="2"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
 device = torch.device("cuda:0")
 dtype = torch.float32
 H = 300
@@ -30,11 +30,14 @@ class DN(torch.nn.Module):
             torch.nn.Linear(H, H, bias=True),
             torch.nn.Tanh(),
             torch.nn.Linear(H, 1, bias=True),
-            torch.nn.Sigmoid()
         )
+        self.out = torch.nn.Sigmoid()
     def forward(self, input):
         output = self.model(input)
+        output = self.out(output)
         return output
+    def LBI(self, x):
+        return self.model(x)
 
 
 def train(model, total_S, total_labels, validation_S, validation_labels,
@@ -77,7 +80,7 @@ if __name__ == "__main__":
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28), 1
     del dataset
     n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
-    for n in [200000, 50000]:
+    for n in n_list:
         X, Y = dataset_P[:n], dataset_Q[:n]
         batch_size = 1024
         batches = n//batch_size
@@ -95,12 +98,13 @@ if __name__ == "__main__":
                                     ).to(device)
         ##### Train #####
         P_values = np.zeros(10)
-        for i in range(1):
+        for i in range(10):
             n_train = n
             model = DN().to(device)
             model = train(model, total_S, total_labels, validation_S, validation_labels,
                         batch_size=batch_size, lr=2e-3, epochs=301, load_epoch=0, save_per=10, momentum=0.99,
-                        n=n_train+i+1)
+                        n=n_train+i)
+        ### Evaluation ###
             n_eval = 10000
             X_eval = dataset_P[n_train:n_train+n_eval]
             Y_eval = dataset_Q[n_train:n_train+n_eval]
@@ -114,10 +118,10 @@ if __name__ == "__main__":
             Y_test = MatConvert(Y_test, device, dtype)
 
             pval = get_pval_at_once(X_eval, Y_eval, X_eval, Y_eval, X_test, Y_test,
-                                model, None, 'Scheffe', None, None, None,
+                                model, None, 'LBI', None, None, None,
                                 norm_or_binom = False)
             P_values[i] = pval
             print('P-value: %.4f'%pval)
-        np.save('./P_values%d.npy'%n_train, P_values)
+        np.save('./checkpoint%d/P_values.npy'%n_train, P_values)
 
         

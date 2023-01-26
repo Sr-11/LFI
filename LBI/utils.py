@@ -377,6 +377,10 @@ def compute_score_func(Z, X, Y,
             if verbose:
                 print('It is Scheffe')
             return model(Z)[:,0]
+        if epsilonOPT == 'LBI':
+            if verbose:
+                print('It is LBI')
+            return model.LBI(Z)[:,0]
         if epsilonOPT == 'Gaussian':
             if verbose:
                 print('It is Gaussian')
@@ -512,11 +516,19 @@ def get_pval_at_once(X_eval, Y_eval, X_eval_test, Y_eval_test, X_test, Y_test,
     X_scores = torch.zeros(n_test)
     Y_scores = torch.zeros(n_test)
     b = time.time()
-    for i in range(1+(n_test-1)//batch_size):
-        X_scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(X_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
-                                                        model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst) 
-        Y_scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(Y_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
-                                                        model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst)
+    if  (norm_or_binom==True and epsilonOPT=='Scheffe') or epsilonOPT=='LBI':
+        epsilonOPT = 'LBI'
+        for i in range(1+(n_test-1)//batch_size):
+            X_scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(X_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
+                                                            model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst) 
+            Y_scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(Y_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
+                                                            model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst)
+    else:
+        for i in range(1+(n_test-1)//batch_size):
+            X_scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(X_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
+                                                            model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst) 
+            Y_scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(Y_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
+                                                            model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst)
     gc.collect()
     c = time.time()
     plt.hist(X_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='X')
@@ -600,10 +612,10 @@ def get_auc_and_x_and_y(PQhat):
 
 
     
-def early_stopping(validation_losses, epoch):
+def early_stopping(validation_losses, epoch, step=10):
     i = np.argmin(validation_losses)
     print(i)
-    if epoch - i > 5:
+    if epoch - i > step:
         return True
     else:
         return False
