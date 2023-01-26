@@ -13,6 +13,7 @@ torch.backends.cudnn.deterministic = True
 dtype = torch.float
 device = torch.device("cuda:0")
 
+# define network
 H = 300
 out = 100
 x_in = 28
@@ -45,18 +46,13 @@ class another_DN(torch.nn.Module):
         output = input
         return output
 
+# define loss function
 def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
     if liuetal:
         mmd_std_temp = torch.sqrt(mmd_var+10**(-8))
         return torch.div(mmd_val, mmd_std_temp)
 
-def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
-    S = np.concatenate((X, Y), axis=0)
-    S = MatConvert(S, device, dtype)
-    Fea = model_u(S)
-    n = X.shape[0]
-    return MMD_General(Fea, n, S, sigma, sigma0_u, ep)
-
+# save checkpoint
 def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
     path = './checkpoint%d/'%n+str(epoch)+'/'
     try:
@@ -71,6 +67,7 @@ def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch
     torch.save(eps, path+'eps.pt')
     torch.save(cst, path+'cst.pt')
 
+# load checkpoint
 def load_model(n, epoch=0):
     path = './checkpoint%d/'%n+str(epoch)+'/'
     model = DN().cuda()
@@ -82,6 +79,7 @@ def load_model(n, epoch=0):
     cst = torch.load(path+'cst.pt')
     return model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst
 
+# train
 def train(n, dataset_P=None, dataset_Q=None,
             learning_rate=5e-4, 
             K=10, N=1000, N_epoch=50, print_every=100, batch_size=32, 
@@ -174,11 +172,11 @@ if __name__ == "__main__":
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28)
 
     n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
-    # for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
-    #     for i in range(10):
-    #         n_list.append(n+i+1)
+    for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
+        for i in range(10):
+            n_list.append(n+i+1)
 
-    for n in n_list:
+    for n in [100000]:
         gc.collect()
         torch.cuda.empty_cache()
         while True:

@@ -6,10 +6,10 @@ import os
 from GPUtil import showUtilization as gpu_usage
 from tqdm import tqdm, trange
 import os
-import gc
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
  
+# Define the network structure
 H = 300
 out = 100
 L = 1
@@ -56,18 +56,13 @@ class another_DN(torch.nn.Module):
         output = input
         return output
 
+# define the loss function
 def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
     if liuetal:
-        mmd_std_temp = torch.sqrt(mmd_var+10**(-8)) #this is std
+        mmd_std_temp = torch.sqrt(mmd_var+10**(-8)) 
         return torch.div(mmd_val, mmd_std_temp)
 
-def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
-    S = np.concatenate((X, Y), axis=0)
-    S = MatConvert(S, device, dtype)
-    Fea = model_u(S)
-    n = X.shape[0]
-    return MMD_General(Fea, n, S, sigma, sigma0_u, ep)
-
+# save ckeckpoint
 def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
     path = './checkpoint%d/'%n+str(epoch)+'/'
     try:
@@ -82,6 +77,7 @@ def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch
     torch.save(eps, path+'eps.pt')
     torch.save(cst, path+'cst.pt')
 
+# load checkpoint
 def load_model(n, epoch=0):
     print('loading model from epoch',epoch)
     path = './checkpoint%d/'%n+str(epoch)+'/'
@@ -94,6 +90,7 @@ def load_model(n, epoch=0):
     cst = torch.load(path+'cst.pt')
     return model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst
 
+# train the network
 def train(n, learning_rate=5e-4, 
             N_epoch=50, print_every=1, batch_size=32, 
             SGD=True, seed=42,
@@ -111,7 +108,7 @@ def train(n, learning_rate=5e-4,
     dtype = torch.float
     device = torch.device("cuda:0")
 
-    batches = n//batch_size + 1 # last batch could be empty
+    batches = n//batch_size + 1 
     n = batches*batch_size  
     X = dataset_P[0:n]
     Y = dataset_Q[0:n]
@@ -125,7 +122,7 @@ def train(n, learning_rate=5e-4,
     model = DN().cuda()
     another_model = another_DN().cuda()
     # prepare other parameters
-    epsilonOPT = MatConvert(-np.ones(1), device, dtype)
+    epsilonOPT = MatConvert(np.zeros(1), device, dtype) # set to 0 for MMD-G
     epsilonOPT.requires_grad = False
     sigmaOPT = MatConvert(np.sqrt(np.random.rand(1) * 0.3), device, dtype)
     sigmaOPT.requires_grad = True
@@ -133,16 +130,15 @@ def train(n, learning_rate=5e-4,
     sigma0OPT.requires_grad = True
     eps=MatConvert(np.zeros((1,)), device, dtype)
     eps.requires_grad = True
-    cst=MatConvert(1*np.ones((1,)), device, dtype) # set to 1 to meet liu etal objective
+    cst=MatConvert(1*np.ones((1,)), device, dtype)
     cst.requires_grad = False
 
-    # load
+    # load checkpoint if one want to start from a previous checkpoint
     if load_epoch>0:
         print('loaded')
         model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst = load_model(load_n, load_epoch)
     model.eval()
-    epsilonOPT = MatConvert(np.zeros(1), device, dtype)
-    epsilonOPT.requires_grad = False
+
     # prepare optimizer
     params = list(model.parameters()) + [sigma0OPT]
     if SGD:
@@ -150,12 +146,15 @@ def train(n, learning_rate=5e-4,
                                     momentum=momentum, weight_decay=weight_decay)
     else:
         optimizer_u = torch.optim.Adam(params, lr=learning_rate)
+
     # validation data
     S1_v = np.concatenate((dataset_P[n + np.random.choice(n, 10000, replace=False)], 
                             dataset_Q[n + np.random.choice(n, 10000, replace=False)]), axis=0)
     S1_v = MatConvert(S1_v, device, dtype)
     J_validations = np.ones([N_epoch])*np.inf
+
     #############################
+    # start training
     #############################
     for t in range(N_epoch):
         print('epoch',t)
@@ -194,7 +193,7 @@ def train(n, learning_rate=5e-4,
             plt.clf()
             save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=t)
 
-        if early_stopping(J_validations, t):
+        if early_stopping(J_validations, t) and J_validations[t]<-0.1:
             save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0)
             plt.plot(J_validations[:t])
             plt.savefig('./checkpoint%d/J_validations.png'%n_backup)
@@ -209,9 +208,9 @@ if __name__ == "__main__":
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28)
 
     n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
-    # for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
-    #     for i in range(10):
-    #         n_list.append(n+i+1)
+    for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
+        for i in range(11):
+            n_list.append(n+i)
     
     for n in n_list:
         print('------ n =', n, '------')

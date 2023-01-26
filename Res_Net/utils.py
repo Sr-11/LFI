@@ -550,7 +550,6 @@ def get_thres_pval(PQhat, thres, pi=1/11, m=1100):
     
 def early_stopping(validation_losses, epoch):
     i = np.argmin(validation_losses)
-    print(i)
     if epoch - i >= 5:
         return True
     else:

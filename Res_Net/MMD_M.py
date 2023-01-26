@@ -15,13 +15,14 @@ from tqdm import tqdm, trange
 import os
 import gc
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0" 
+os.environ["CUDA_VISIBLE_DEVICES"]="7" 
 torch.backends.cudnn.deterministic = True
 dtype = torch.float
 device = torch.device("cuda:0")
 torch.manual_seed(42)
 np.random.seed(42)
 
+# define network
 H = 300
 out = 100
 x_in = 28
@@ -68,19 +69,13 @@ class another_DN(torch.nn.Module):
         output = self.model(input) + input
         return output
 
+# define loss function
 def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
     if liuetal:
         mmd_std_temp = torch.sqrt(mmd_var+10**(-8)) #this is std
         return torch.div(mmd_val, mmd_std_temp)
 
-# calculate the MMD for m!=n
-def mmdG(X, Y, model_u, n, sigma, sigma0_u, device, dtype, ep):
-    S = np.concatenate((X, Y), axis=0)
-    S = MatConvert(S, device, dtype)
-    Fea = model_u(S)
-    n = X.shape[0]
-    return MMD_General(Fea, n, S, sigma, sigma0_u, ep)
-
+# save checkpoint
 def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
     path = './checkpoint%d/'%n+str(epoch)+'/'
     try:
@@ -95,6 +90,7 @@ def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch
     torch.save(eps, path+'eps.pt')
     torch.save(cst, path+'cst.pt')
 
+# load checkpoint
 def load_model(n, epoch=0):
     path = './checkpoint%d/'%n+str(epoch)+'/'
     model = DN().cuda()
@@ -106,6 +102,7 @@ def load_model(n, epoch=0):
     cst = torch.load(path+'cst.pt')
     return model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst
 
+# train
 def train(n, learning_rate=5e-4, 
             K=10, N=1000, N_epoch=50, 
             print_every=1, batch_size=32, 
@@ -120,11 +117,7 @@ def train(n, learning_rate=5e-4,
     #cuda.select_device(0)
     batches = (n-1)//batch_size + 1 # last batch could be empty
     n = batches*batch_size  
-    print("\n------------------------------------------------")
-    print("----- Starting K=%d independent kernels   -----"%(N_epoch))
-    print("----- N_epoch=%d epochs per data trial    ------"%(K))
-    print("----- N=%d tests per inference of Z per m -----"%(N))
-    print("------------------------------------------------\n")
+    print("------------------------------------------------")
     X = dataset_P[0:n]
     Y = dataset_Q[0:n]
     print(X.shape, Y.shape)
@@ -162,7 +155,7 @@ def train(n, learning_rate=5e-4,
     #############################
     #############################
     for t in range(N_epoch):
-        print(t)
+        print('epoch %d'%t)
         order = np.random.permutation(batches)
         for ind in tqdm(order):
             optimizer_u.zero_grad()
@@ -210,9 +203,9 @@ if __name__ == "__main__":
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28)
 
     n_list = [1300000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 10000, 60000, 3000, 1000]
-    # for i in range(9):
-    #     for n in [1000000, 700000, 400000, 200000, 100000, 50000, 30000, 10000, 0000, 3000, 1000, 1600000]:
-    #         n_list.append(n+i)
+    for i in range(11):
+        for n in [1300000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 10000, 60000, 3000, 1000]:
+            n_list.append(n+i)
 
     for n in n_list:
         gc.collect()
@@ -222,7 +215,7 @@ if __name__ == "__main__":
             print(n)
             model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst,J = train(n, 
                 N_epoch = 501, # 只load就设成1
-                print_every = 10, 
+                print_every = 1, 
                 batch_size = 1024, 
                 learning_rate =2e-3, 
                 SGD = True, 

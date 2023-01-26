@@ -1,4 +1,3 @@
-#Implements Scheffes test by first building a classifier between X and Y, then classifies Y.
 from sklearn.utils import check_random_state
 import numpy as np
 import torch
@@ -15,6 +14,8 @@ os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
 device = torch.device("cuda:0")
 dtype = torch.float32
+
+# define network
 H = 300
 class DN(torch.nn.Module):
     def __init__(self):
@@ -39,9 +40,9 @@ class DN(torch.nn.Module):
     def LBI(self, x):
         return self.model(x)
 
-
+# train
 def train(model, total_S, total_labels, validation_S, validation_labels,
-          batch_size=100, lr=0.0002, epochs=1000, load_epoch=0, save_per=10, momentum = 0.99, n=None):
+          batch_size=1024, lr=0.0002, epochs=1000, load_epoch=0, save_per=10, momentum = 0.99, n=None):
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)    
     criterion = torch.nn.BCELoss().cuda()
     validation_records = np.ones(epochs)*np.inf
@@ -55,6 +56,7 @@ def train(model, total_S, total_labels, validation_S, validation_labels,
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+        # validation
         with torch.no_grad():
             validation_records[epoch] = criterion(model(validation_S), validation_labels).detach().cpu().numpy()
         print('Epoch: %d, Loss: %.4f'%(epoch, validation_records[epoch]))
@@ -66,24 +68,33 @@ def train(model, total_S, total_labels, validation_S, validation_labels,
                 os.makedirs(path) 
             except:
                 pass
+            torch.save(model.state_dict(), path+'model.pt')
             plt.plot(validation_records[:epoch])
-            plt.savefig(path+'loss.png')
+            plt.savefig('./checkpoint%d/'%n+'loss.png')
             plt.clf()
 
     torch.save(model.state_dict(), './checkpoint%d/0/model.pt'%n)
     return model
 
 if __name__ == "__main__":
-    ##### Data #####
+    ##### load data #####
     dataset = np.load('../HIGGS.npy')
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5829122, 28), 0
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28), 1
     del dataset
+
     n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
+    repeats = 10
+    # for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
+    #     for i in range(11):
+    #         n_list.append(n+i)
+    
     for n in n_list:
         X, Y = dataset_P[:n], dataset_Q[:n]
         batch_size = 1024
         batches = n//batch_size
+        
+        #### training set ####
         total_S = [(X[i*batch_size:(i+1)*batch_size], 
                     Y[i*batch_size:(i+1)*batch_size]) 
                     for i in range(batches)]
@@ -97,13 +108,16 @@ if __name__ == "__main__":
                                     torch.ones((10000,1), dtype=dtype))
                                     ).to(device)
         ##### Train #####
-        P_values = np.zeros(10)
-        for i in range(10):
+        P_values = np.zeros(repeats)
+        for i in range(repeats):
             n_train = n
             model = DN().to(device)
             model = train(model, total_S, total_labels, validation_S, validation_labels,
-                        batch_size=batch_size, lr=2e-3, epochs=301, load_epoch=0, save_per=10, momentum=0.99,
+                        epochs=501, 
+                        batch_size=batch_size, lr=2e-3, momentum=0.99,
+                        load_epoch=0, save_per=10, 
                         n=n_train+i)
+
         ### Evaluation ###
             n_eval = 10000
             X_eval = dataset_P[n_train:n_train+n_eval]

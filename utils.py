@@ -64,20 +64,19 @@ class Classifier(torch.nn.Module):
     def __init__(self, H=300, layers = 5, tanh=True):
         super(Classifier, self).__init__()
         self.restored = False
-        if layers == 5 and not tanh:
-            self.model = torch.nn.Sequential(
-                torch.nn.Linear(28, H, bias=True),
-                torch.nn.ReLU(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.ReLU(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.ReLU(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.ReLU(),
-                torch.nn.Linear(H, 1, bias=True),
-                torch.nn.Sigmoid(),
+        self.model = torch.nn.Sequential(
+            torch.nn.Linear(28, H, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.ReLU(),
+            torch.nn.Linear(H, 1, bias=True),
+            torch.nn.Sigmoid(),
         )
-        if layers == 6 and not tanh:
+        if layers == 6:
             self.model = torch.nn.Sequential(
                 torch.nn.Linear(28, H, bias=True),
                 torch.nn.ReLU(),
@@ -92,20 +91,7 @@ class Classifier(torch.nn.Module):
                 torch.nn.Linear(H, 1, bias=True),
                 torch.nn.Sigmoid(),
             )
-        if layers == 5 and tanh:
-            self.model = torch.nn.Sequential(
-                torch.nn.Linear(28, H, bias=True),
-                torch.nn.Tanh(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.Tanh(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.Tanh(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.Tanh(),
-                torch.nn.Linear(H, 1, bias=True),
-                torch.nn.Sigmoid(),
-        )
-        if layers == 6 and tanh:
+        if tanh:
             self.model = torch.nn.Sequential(
                 torch.nn.Linear(28, H, bias=True),
                 torch.nn.Tanh(),
@@ -250,6 +236,11 @@ def MMDu_linear_kernel(Fea, len_s, is_var_computed=True, use_1sample_U=True):
 def load_model(model, another_model, path):
     # model = DN().cuda()
     # another_model = another_DN().cuda()
+    if path[2:5] == 'LBI':
+        model.load_state_dict(torch.load(path+'model.pt'))
+        model.eval()
+        print('LBI')
+        return model, None, 'LBI', None, None, None
     if path[2:9] == 'Scheffe':
         model.load_state_dict(torch.load(path+'model.pt'))
         model.eval()
@@ -387,6 +378,10 @@ def compute_score_func(Z, X, Y,
     
         if verbose:
             print('epsilonOPT =', epsilonOPT)
+        if epsilonOPT == 'LBI':
+            if verbose:
+                print('It is Scheffe')
+            return model.LBI(Z)[:,0]
         if epsilonOPT == 'Scheffe':
             if verbose:
                 print('It is Scheffe')
@@ -444,7 +439,7 @@ def get_thres_and_x_and_y(PQhat):
     inf = np.min(PQhat)
     sup = np.max(PQhat)
     thres = np.linspace(inf, sup, 1000)
-    thres = thres[10:990]
+    thres = thres[80:920]
     x = np.zeros(thres.shape)
     y = np.zeros(thres.shape)
     for i in range(thres.shape[0]):
@@ -462,11 +457,11 @@ def get_thres(PQhat):
     #p_list = p_list[p_list.shape[0]//10 : p_list.shape[0]//10*9]
     i = np.argmax(p_list)
     print('thres=', thres[i], ',max=', np.max(PQhat), ',min=', np.min(PQhat))
-    plt.plot(thres, p_list)
-    plt.axvline(x=thres[i], color='r', label='thres')
-    plt.savefig('p-thres.png')
-    print('In get_thres(), p-thres.png saved')
-    plt.show()
+    # plt.plot(thres, p_list)
+    # plt.axvline(x=thres[i], color='r', label='thres')
+    # plt.savefig('p-thres.png')
+    # print('In get_thres(), p-thres.png saved')
+    # plt.show()
     return thres[i], x[i], y[i]
 
 def get_thres_at_once(X_eval, Y_eval, X_test, Y_test, 
@@ -532,27 +527,25 @@ def get_pval_at_once(X_eval, Y_eval, X_eval_test, Y_eval_test, X_test, Y_test,
         Y_scores[i*batch_size : (i+1)*batch_size] =  compute_score_func(Y_test[i*batch_size : (i+1)*batch_size], X_eval, Y_eval,
                                                         model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst)
     gc.collect()
+    # print(torch.min(X_scores))
+    # print(torch.max(X_scores))
+    # print(torch.min(Y_scores))
+    # print(torch.max(Y_scores))
     c = time.time()
-    if norm_or_binom==True and epsilonOPT=='Scheffe':
-        X_scores = torch.log(X_scores/(1-X_scores))
-        Y_scores = torch.log(Y_scores/(1-Y_scores))
-        pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
-    else:
-        pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
+    pval = get_pval(X_scores, Y_scores, thres = thres, norm_or_binom=norm_or_binom)
     d = time.time()
     print('time for get thres:', b-a)
     print('time for get scores:', c-b)
     print('time for get pval:', d-c)
-    plt.hist(X_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='X')
-    plt.hist(Y_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='Y')
-    plt.axvline(x=thres, color='r', linestyle='--')
-    plt.title('p-value = '+str(pval))
-    plt.legend()
-    plt.show()
+    # plt.hist(X_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='X')
+    # plt.hist(Y_scores.cpu().detach().numpy(), bins=100, alpha=0.5, label='Y')
+    # plt.axvline(x=thres, color='r', linestyle='--')
+    # plt.title('p-value = '+str(pval))
+    # plt.legend()
+    # plt.show()
 
     return pval
 ###############
-
 def get_thres_pval(PQhat, thres, pi=1/11, m=1100):
     M = PQhat.shape[0]//2
     Phat = PQhat[:M]<thres
@@ -574,6 +567,7 @@ def get_thres_pval(PQhat, thres, pi=1/11, m=1100):
     
 def early_stopping(validation_losses, epoch):
     i = np.argmin(validation_losses)
+    print(i)
     if epoch - i > 10:
         return True
     else:

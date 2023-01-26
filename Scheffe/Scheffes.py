@@ -15,6 +15,8 @@ os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="2"  # specify which GPU(s) to be used
 device = torch.device("cuda:0")
 dtype = torch.float32
+
+# define network
 H = 300
 class DN(torch.nn.Module):
     def __init__(self):
@@ -36,13 +38,13 @@ class DN(torch.nn.Module):
         output = self.model(input)
         return output
 
-
+# train
 def train(model, total_S, total_labels, validation_S, validation_labels,
           batch_size=100, lr=0.0002, epochs=1000, load_epoch=0, save_per=10, momentum = 0.99, n=None):
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)    
     criterion = torch.nn.BCELoss().cuda()
     validation_records = np.ones(epochs)*np.inf
-    for epoch in trange(load_epoch, epochs+load_epoch):
+    for epoch in range(load_epoch, epochs+load_epoch):
         order = np.random.permutation(len(total_S))
         for i in order:
             optimizer.zero_grad()
@@ -54,7 +56,8 @@ def train(model, total_S, total_labels, validation_S, validation_labels,
             optimizer.step()
         with torch.no_grad():
             validation_records[epoch] = criterion(model(validation_S), validation_labels).detach().cpu().numpy()
-        print('Epoch: %d, Loss: %.4f'%(epoch, validation_records[epoch]))
+
+        print('Epoch: %d, Loss: %.4f, n:%d'%(epoch, validation_records[epoch],n))
         if early_stopping(validation_records, epoch):
             break
         if epoch % save_per == 0:
@@ -66,18 +69,26 @@ def train(model, total_S, total_labels, validation_S, validation_labels,
             plt.plot(validation_records[:epoch])
             plt.savefig(path+'loss.png')
             plt.clf()
+            torch.save(model.state_dict(), './checkpoint%d/%d/model.pt'%(n,epoch))
 
+    plt.plot(validation_records[:epoch])
+    plt.savefig('./checkpoint%d/'%n+'loss.png')
+    plt.clf()
     torch.save(model.state_dict(), './checkpoint%d/0/model.pt'%n)
     return model
 
 if __name__ == "__main__":
-    ##### Data #####
+    ##### Load Data #####
     dataset = np.load('../HIGGS.npy')
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5829122, 28), 0
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28), 1
     del dataset
+
+    # train
     n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
-    for n in n_list:
+    repeats = 10
+    for n in [100000]:
+        # prepare training set
         X, Y = dataset_P[:n], dataset_Q[:n]
         batch_size = 1024
         batches = n//batch_size
@@ -88,14 +99,14 @@ if __name__ == "__main__":
         total_labels = [torch.cat((torch.zeros((batch_size,1), dtype=dtype), 
                                 torch.ones((batch_size,1), dtype=dtype))
                                 ).to(device) for _ in range(batches)]
-        ##### Validation #####
+        # prepare validation #
         validation_S = MatConvert(np.concatenate((dataset_P[n:n+10000], dataset_Q[n:n+10000]), axis=0), device, dtype)
         validation_labels = torch.cat((torch.zeros((10000,1), dtype=dtype),
                                     torch.ones((10000,1), dtype=dtype))
                                     ).to(device)
         ##### Train #####
-        P_values = np.zeros(10)
-        for i in range(10):
+        P_values = np.zeros(repeats)
+        for i in range(repeats):
             n_train = n
             model = DN().to(device)
             model = train(model, total_S, total_labels, validation_S, validation_labels,
