@@ -3,18 +3,12 @@ import torch
 from utils import *
 from matplotlib import pyplot as plt
 import os
-from GPUtil import showUtilization as gpu_usage
 from tqdm import tqdm, trange
 import os
-from kmod import density, util, kernel
-from kmod import mctest as mct
 import matplotlib.pyplot as plt
-import autograd.numpy as np
-import autograd
-import scipy
-import kgof
-from kmod.mctest import SC_UME as SC_UME
+# import autograd.numpy as np
 import pickle
+import sys
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
@@ -25,9 +19,11 @@ device = torch.device("cuda:0")
 torch.manual_seed(42)
 np.random.seed(42)
 
+debug = False
+
 # define network
 H = 300
-out = 100
+out = 10
 x_in = 28
 L = 1
 class DN(torch.nn.Module):
@@ -69,7 +65,7 @@ class another_DN(torch.nn.Module):
             torch.nn.Linear(H, 28, bias=True),
         )
     def forward(self, input):
-        output = self.model(input) + input
+        output = input + self.model(input) 
         return output
 
 # Since we use pytorch rather than autograd.np, we don't follow the inheritance kernel class in the kmod package
@@ -100,14 +96,13 @@ class NeuralKernel():
         ------
         fea_pq : n x J numpy array
         """
-        len_X = XY.shape[0]//2
+        n = len_X = XY.shape[0]//2
         J = V.shape[0]
 
         cst = self.cst
         sigma0 = self.sigma0OPT ** 2
         sigma = self.sigmaOPT ** 2
         epsilon = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
-
 
         model_XY = self.model(XY)
         another_model_XY = self.another_model(XY)
@@ -124,10 +119,21 @@ class NeuralKernel():
         Dxv_org = Pdist2(another_model_X, another_model_V)
         Dyv_org = Pdist2(another_model_Y, another_model_V)
 
-        Kxv = cst*((1-epsilon) * torch.exp(-(Dxv / sigma0) - (Dxv_org / sigma))**L + epsilon * torch.exp(-Dxv_org / sigma))
-        Kyv = cst*((1-epsilon) * torch.exp(-(Dyv / sigma0) - (Dyv_org / sigma))**L + epsilon * torch.exp(-Dyv_org / sigma))
+        Kxv = cst* (((1-epsilon) * torch.exp(- Dxv / sigma0) + epsilon) * torch.exp(-Dxv_org / sigma))
+        Kyv = cst* (((1-epsilon) * torch.exp(- Dyv / sigma0) + epsilon) * torch.exp(-Dyv_org / sigma))
 
         fea_pq = 1/np.sqrt(J) * (Kxv - Kyv)
+
+        if debug:
+            # plt.scatter(model_V.cpu().detach().numpy()[:,0], model_V.cpu().detach().numpy()[:,1], label='V', alpha=0.5)
+            # plt.scatter(model_X.cpu().detach().numpy()[:,0], model_X.cpu().detach().numpy()[:,1], label='X', alpha=0.5)
+            # plt.scatter(model_Y.cpu().detach().numpy()[:,0], model_Y.cpu().detach().numpy()[:,1], label='Y', alpha=0.5)
+            # plt.legend()
+            # plt.savefig('VXY_feature.png')
+            # plt.clf()
+            print(sigma0.item(), sigma.item(), epsilon.item(), cst.item())
+
+
         return fea_pq
         
     def compute_UME_mean_variance(self, XY, V): # compute mean and var of UME(X,Y)
@@ -141,11 +147,25 @@ class NeuralKernel():
         # get the feature matrices psi (correlated)
         # fea_pq = psi_p(V)-psi_q(V) = n x J,
         J = V.shape[0]
-        n = XY.shape[0]/2
+        n = XY.shape[0]//2
+
         fea_pq = self.compute_feature_matrix(XY, V) # n x J
+        
+        # if debug:
+            # plt.scatter(XY.cpu().detach().numpy()[:n,0], XY.cpu().detach().numpy()[:n,1], label='X', alpha=0.5)
+            # plt.scatter(XY.cpu().detach().numpy()[n:,0], XY.cpu().detach().numpy()[n:,1], label='Y', alpha=0.5)
+            # plt.scatter(V.cpu().detach().numpy()[:,0], V.cpu().detach().numpy()[:,1], label='V', alpha=0.5)
+            # plt.legend()
+            # plt.savefig('VXY.png')
+            # plt.clf()
+
+            # plt.matshow(fea_pq.cpu().detach().numpy())
+            # plt.colorbar()
+            # plt.savefig('fea_pq.png')
+            # plt.clf()
 
         # compute the mean 
-        t1 = torch.sum( torch.mean(fea_pq, axis=0)**2) * (n/float(n-1))
+        t1 = torch.sum(torch.mean(fea_pq, axis=0)**2) * (n/float(n-1))
         t2 = torch.mean(torch.sum(fea_pq**2, axis=1)) / float(n-1)
         UME_mean = t1 - t2
 
@@ -155,7 +175,16 @@ class NeuralKernel():
         # ! note that torch.dot does not support broadcasting
         UME_variance = 4.0*torch.mean(torch.matmul(fea_pq, mu)**2) - 4.0*torch.sum(mu**2)**2
 
+        if debug:
+            print('mean', UME_mean.item(), 'var', UME_variance.item())
         return UME_mean, UME_variance
+    
+    def clamp(self):
+        with torch.no_grad():
+            self.cst.clamp_(min=0.5, max=2.0)
+            self.epsilonOPT.clamp_(min=-10.0, max=10.0)
+            self.sigmaOPT.clamp_(min=0.0, max=30.0)
+            self.sigma0OPT.clamp_(min=0.0, max=30.0)
 
 # save ckeckpoint
 def save_model(V, kernel, epoch, folder_path):
@@ -199,7 +228,8 @@ def power_criterion_mix(XY, V, kernel): #  objective to maximize,
     # calculate objective
     UME_mean = TEMP[0]
     UME_var = TEMP[1]
-    UME_std = torch.sqrt(UME_var+10**(-8))
+    UME_std = torch.sqrt(UME_var+10**(-6))
+    # print(UME_mean, UME_std)
     ratio = torch.div(UME_mean,UME_std)
     return ratio
 
@@ -222,7 +252,7 @@ def optimize_3sample_criterion_and_kernel(prepared_batched_XY, # total_S, is a l
                                         fig_loss_epoch_name, # name of the loss vs epoch figure
                                         chechpoint_folder_path # folder path to save checkpoint
                                         ):
-    params = list(kernel.params) + [V]
+    params = kernel.params #+ [V]
     optimizer = torch.optim.SGD(params, lr=learning_rate, momentum=momentum)
     total_S = prepared_batched_XY
     batches = len(total_S)
@@ -243,9 +273,11 @@ def optimize_3sample_criterion_and_kernel(prepared_batched_XY, # total_S, is a l
             # update parameters
             obj.backward(retain_graph=False)
             optimizer.step()     
+            # prevent nan
+            kernel.clamp()
         #validation
         with torch.torch.no_grad():
-            validation_ratio = power_criterion_mix(validation_XY, V, kernel).item()
+            validation_ratio = -power_criterion_mix(validation_XY, V, kernel).item()
             validation_ratio_list[t] = validation_ratio
             print('validation =', validation_ratio_list[t])
         # print log
@@ -299,14 +331,14 @@ def train(n_tr, J=None, # size of X_tr, Y_tr and W=V
 
     epsilonOPT = MatConvert(np.zeros(1), device, dtype) # set to 0 for MMD-G
     epsilonOPT.requires_grad = True
-    sigmaOPT = MatConvert(np.sqrt(np.random.rand(1) * 0.3), device, dtype)
+    sigmaOPT = 10*MatConvert(np.sqrt(np.random.rand(1) * 0.3), device, dtype)
     sigmaOPT.requires_grad = True
-    sigma0OPT = MatConvert(np.sqrt(np.random.rand(1) * 0.002), device, dtype)
+    sigma0OPT = 10*MatConvert(np.sqrt(np.random.rand(1) * 0.002), device, dtype)
     sigma0OPT.requires_grad = True
     eps=MatConvert(np.zeros((1,)), device, dtype)
     eps.requires_grad = True
     cst=MatConvert(1*np.ones((1,)), device, dtype)
-    cst.requires_grad = True
+    cst.requires_grad = False
     kernel = NeuralKernel(model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, eps, cst)
 
     V = np.concatenate((dataset_P[np.random.choice(n, J//2, replace=False)], 
@@ -321,8 +353,8 @@ def train(n_tr, J=None, # size of X_tr, Y_tr and W=V
     kernel.another_model.eval()
 
     # validation data
-    validation_XY = np.concatenate((dataset_P[n + np.random.choice(n, 10000, replace=False)], 
-                            dataset_Q[n + np.random.choice(n, 10000, replace=False)]), axis=0)
+    validation_XY = np.concatenate((dataset_P[ n: n+10000 ], 
+                            dataset_Q[ n: n+10000 ]), axis=0)
     validation_XY = MatConvert(validation_XY, device, dtype)
 
     #############################
@@ -340,27 +372,26 @@ def train(n_tr, J=None, # size of X_tr, Y_tr and W=V
 
 
 if __name__ == "__main__":
-    dataset = np.load('../../LFI/Higgs/HIGGS.npy')
-
+    dataset = np.load('../../../../Datasets/HIGGS_first_200_000.npy')
     print('signal : background =',np.sum(dataset[:,0]),':',dataset.shape[0]-np.sum(dataset[:,0]))
     print('signal :',np.sum(dataset[:,0])/dataset.shape[0]*100,'%')
     # split into signal and background
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5170877, 28)
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5829122, 28) 
 
-    n_tr_list = [100_000]
+    n_tr_list = [80_000]
     # for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
     #     for i in range(11):
     #         n_list.append(n+i)
     
     for n_tr in n_tr_list:
         print('------ n =', n_tr, '------')
-        V, kernel =  train(n_tr, J=100_000, # size of X_tr, Y_tr and W=V
+        V, kernel =  train(n_tr, J=2048, # size of X_tr, Y_tr and W=V
             load_epoch=0, # load checkpoint if >0
             batch_size=2048, N_epoch=501, learning_rate=0.01, momentum=0.9, # optimizer
             print_every=10, # print and save checkpoint
             early_stopping=early_stopping, # early stopping boolean function
-            fig_loss_epoch_name='./loss_epoch.png', # name of the loss vs epoch figure
-            chechpoint_folder_path = './checkpoint n_tr=%d/'%n_tr, # folder path to save checkpoint
+            fig_loss_epoch_name=sys.path[0]+'/loss_epoch.png', # name of the loss vs epoch figure
+            chechpoint_folder_path = sys.path[0]+'/checkpoints n_tr=%d/'%n_tr, # folder path to save checkpoint
             )
 

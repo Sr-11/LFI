@@ -4,3 +4,4 @@
 *.pt
 *.png
 *.pdf
+**/checkpoints**
