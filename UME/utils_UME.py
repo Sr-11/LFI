@@ -7,6 +7,7 @@ import pyroc
 is_cuda = True
 import scipy
 import gc
+import os
 from tqdm import trange
 device = torch.device("cuda:0")
 dtype = torch.float32
@@ -17,12 +18,17 @@ class ConstModel(torch.nn.Module):
     def forward(self, input):
         return input
 
+# define network
+H = 300
+out = 100
+x_in = 28
+L = 1
 class DN(torch.nn.Module):
-    def __init__(self, H=300, out=100):
+    def __init__(self):
         super(DN, self).__init__()
         self.restored = False
         self.model = torch.nn.Sequential(
-            torch.nn.Linear(28, H, bias=True),
+            torch.nn.Linear(x_in, H, bias=True),
             torch.nn.ReLU(),
             torch.nn.Linear(H, H, bias=True),
             torch.nn.ReLU(),
@@ -39,7 +45,7 @@ class DN(torch.nn.Module):
         return output
 
 class another_DN(torch.nn.Module):
-    def __init__(self, H=300, out=28):
+    def __init__(self, H=300, out=100):
         super(another_DN, self).__init__()
         self.restored = False
         self.model = torch.nn.Sequential(
@@ -53,69 +59,11 @@ class another_DN(torch.nn.Module):
             torch.nn.Tanh(),
             torch.nn.Linear(H, H, bias=True),
             torch.nn.Tanh(),
-            torch.nn.Linear(H, out, bias=True),
+            torch.nn.Linear(H, 28, bias=True),
         )
     def forward(self, input):
-        output = self.model(input) + input
+        output = input + self.model(input) 
         return output
-
-class Classifier(torch.nn.Module):
-    def __init__(self, H=300, layers = 5, tanh=True):
-        super(Classifier, self).__init__()
-        self.restored = False
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(28, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, 1, bias=True),
-            torch.nn.Sigmoid(),
-        )
-        if layers == 6:
-            self.model = torch.nn.Sequential(
-                torch.nn.Linear(28, H, bias=True),
-                torch.nn.ReLU(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.ReLU(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.ReLU(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.ReLU(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.ReLU(),
-                torch.nn.Linear(H, 1, bias=True),
-                torch.nn.Sigmoid(),
-            )
-        if tanh:
-            self.model = torch.nn.Sequential(
-                torch.nn.Linear(28, H, bias=True),
-                torch.nn.Tanh(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.Tanh(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.Tanh(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.Tanh(),
-                torch.nn.Linear(H, H, bias=True),
-                torch.nn.Tanh(),
-                torch.nn.Linear(H, 1, bias=True),
-                torch.nn.Sigmoid()
-            )
-    def forward(self, input):
-        output = self.model(input)
-        return output
-
-def get_item(x, is_cuda):
-    """get the numpy value from a torch tensor."""
-    if is_cuda:
-        x = x.cpu().detach().numpy()
-    else:
-        x = x.detach().numpy()
-    return x
 
 def MatConvert(x, device, dtype):
     """convert the numpy to a torch tensor."""
@@ -139,141 +87,217 @@ def Pdist2(x, y):
     # torch.cuda.empty_cache()
     return Pdist
 
-def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, use_2nd = False):
-    """compute value of MMD and std of MMD using kernel matrix."""
-    """Kx: (n_x,n_x)"""
-    """Kx: (n_y,n_y)"""
-    """Kxy: (n_x,n_y)"""
-    """Notice: their estimator is also biased, including 2nd order term (but the value is incorrect)"""
-    Kxxy = torch.cat((Kx,Kxy),1)
-    Kyxy = torch.cat((Kxy.transpose(0,1),Ky),1)
-    Kxyxy = torch.cat((Kxxy,Kyxy),0)
-    nx = Kx.shape[0]
-    ny = Ky.shape[0]
-    is_unbiased = True
+# Since we use pytorch rather than autograd.np, we don't follow the inheritance kernel class in the kmod package
+class NeuralKernel():
+    """
+    A neural net + a isotropic Gaussian kernel.
+    """
+    def __init__(self, model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, eps, cst):
+        self.model = model
+        self.another_model = another_model
+        self.epsilonOPT = epsilonOPT
+        self.sigmaOPT = sigmaOPT
+        self.sigma0OPT = sigma0OPT
+        self.eps = eps
+        self.cst = cst
+        self.params = list(model.parameters())+list(another_model.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps]+[cst]
+
+    def compute_feature_matrix(self, XY, V): 
+        """
+        Compute fea_pq = psi_p(V)-psi_q(V), whose shape is n x J
+
+        Parameters
+        ----------
+        XY : (n1+n2) x d numpy array
+        V : J x d numpy array
+
+        Return
+        ------
+        fea_pq : n x J numpy array
+        """
+        n = len_X = XY.shape[0]//2
+        J = V.shape[0]
+
+        cst = self.cst
+        sigma0 = self.sigma0OPT ** 2
+        sigma = self.sigmaOPT ** 2
+        epsilon = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
+
+        model_XY = self.model(XY)
+        another_model_XY = self.another_model(XY)
+        model_X = model_XY[0:len_X, :]
+        model_Y = model_XY[len_X:, :]
+        another_model_X = another_model_XY[0:len_X, :]
+        another_model_Y = another_model_XY[len_X:, :]
+
+        model_V = self.model(V)
+        another_model_V = self.another_model(V)
+
+        Dxv = Pdist2(model_X, model_V)
+        Dyv = Pdist2(model_Y, model_V)
+        Dxv_org = Pdist2(another_model_X, another_model_V)
+        Dyv_org = Pdist2(another_model_Y, another_model_V)
+
+        Kxv = cst* (((1-epsilon) * torch.exp(- Dxv / sigma0) + epsilon) * torch.exp(-Dxv_org / sigma))
+        Kyv = cst* (((1-epsilon) * torch.exp(- Dyv / sigma0) + epsilon) * torch.exp(-Dyv_org / sigma))
+
+        fea_pq = 1/np.sqrt(J) * (Kxv - Kyv)
+
+        return fea_pq
+        
+    def compute_UME_mean_variance(self, XY, V): # compute mean and var of UME(X,Y)
+        """
+        Return the mean and variance of the reduced
+        test statistic = \sqrt{n} UME(P, Q)^2
+        The estimator of the mean is unbiased (can be negative).
+
+        returns: (mean, variance)
+        """
+        # get the feature matrices psi (correlated)
+        # fea_pq = psi_p(V)-psi_q(V) = n x J,
+        J = V.shape[0]
+        n = XY.shape[0]//2
+
+        fea_pq = self.compute_feature_matrix(XY, V) # n x J
+        
+        # compute the mean 
+        t1 = torch.sum(torch.mean(fea_pq, axis=0)**2) * (n/float(n-1))
+        t2 = torch.mean(torch.sum(fea_pq**2, axis=1)) / float(n-1)
+        UME_mean = t1 - t2
+
+        # compute the variance
+        mu = torch.mean(fea_pq, axis=0, keepdim=True) # J*1 vector
+        mu = mu.t()
+        # ! note that torch.dot does not support broadcasting
+        UME_variance = 4.0*torch.mean(torch.matmul(fea_pq, mu)**2) - 4.0*torch.sum(mu**2)**2
+
+        return UME_mean, UME_variance
     
-    if is_unbiased:
-        xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
-        yy = torch.div((torch.sum(Ky) - torch.sum(torch.diag(Ky))), (ny * (ny - 1)))
-        # one-sample U-statistic.
-        if use_1sample_U:
-            xy = torch.div((torch.sum(Kxy) - torch.sum(torch.diag(Kxy))), (nx * (ny - 1)))
-        else:
-            xy = torch.div(torch.sum(Kxy), (nx * ny))
-        mmd2 = xx - 2 * xy + yy
-    else:
-        xx = torch.div((torch.sum(Kx)), (nx * nx))
-        yy = torch.div((torch.sum(Ky)), (ny * ny))
-        # one-sample U-statistic.
-        if use_1sample_U:
-            xy = torch.div((torch.sum(Kxy)), (nx * ny))
-        else:
-            xy = torch.div(torch.sum(Kxy), (nx * ny))
-        mmd2 = xx - 2 * xy + yy
-    if not is_var_computed:
-        return mmd2, None
-    # H[i,j]=k(x_i,x_j)+k(y_i,y_j)-k(x_i,y_j)-k(y_i,x_j)
-    #print(Kx.shape, Ky.shape, Kxy.shape)
-    H = Kx+Ky-Kxy-Kxy.transpose(0,1)
-    #print(H.shape)
-    V1 = torch.dot(H.sum(1)/ny,H.sum(1)/ny) / ny
-    V2 = (H).sum() / (nx) / nx
-    varEst = 4*(V1 - V2**2)
-    #if varEst == 0.0:
-    #    print('error!!'+str(V1))
-    if use_2nd:
-        V3 = 0
-        return mmd2, varEst, Kxyxy
-    return mmd2, varEst, Kxyxy
+    def clamp(self):
+        with torch.no_grad():
+            self.cst.clamp_(min=0.5, max=2.0)
+            self.epsilonOPT.clamp_(min=-10.0, max=10.0)
+            self.sigmaOPT.clamp_(min=0.0, max=30.0)
+            self.sigma0OPT.clamp_(min=0.0, max=30.0)
 
-def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
-         is_smooth=True, is_var_computed=True, use_1sample_U=True, L=1, kwarg=None):
-    """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
-    X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
-    Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)
-    X_org = Fea_org[0:len_s, :] # fetch the original sample 1
-    Y_org = Fea_org[len_s:, :] # fetch the original sample 2
-    L = 1 # generalized Gaussian (if L>1)
-    Dxx = Pdist2(X, X)
-    Dyy = Pdist2(Y, Y)
-    Dxy = Pdist2(X, Y)
-    Dxx_org = Pdist2(X_org, X_org)
-    Dyy_org = Pdist2(Y_org, Y_org)
-    Dxy_org = Pdist2(X_org, Y_org)
-    if is_smooth:
-        Kx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma))
-        Ky = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
-        Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma))
-    else:
-        Kx = cst*torch.exp(-Dxx / sigma0)
-        Ky = cst*torch.exp(-Dyy / sigma0)
-        Kxy = cst*torch.exp(-Dxy / sigma0)
-    if kwarg == 'Gaussian':
-        Kx = torch.exp(-Dxx_org / sigma)
-        Ky = torch.exp(-Dyy_org / sigma)
-        Kxy = torch.exp(-Dxy_org / sigma)
-    return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
+    def compute_gram_matrix(self, X, Y): 
+        """
+        Parameters
+        ----------
+        XY : (n1+n2) x d numpy array
 
+        Return
+        ------
+        fea_pq : n1 x n2 numpy array
+        """
+        cst = self.cst
+        sigma0 = self.sigma0OPT ** 2
+        sigma = self.sigmaOPT ** 2
+        epsilon = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
 
-def MMD_General(Fea, n, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), is_smooth=True, L=1):
-    return MMDu(Fea, n, Fea_org, sigma, sigma0, epsilon, is_smooth, is_var_computed=False, use_1sample_U=False, L=L)
+        model_X = self.model(X)
+        model_Y = self.model(Y)
+        another_model_X = self.another_model(X)
+        another_model_Y = self.another_model(Y)
 
+        Dxy = Pdist2(model_X, model_Y)
+        Dxy_org = Pdist2(another_model_X, another_model_Y)
+        Kxy = cst* (((1-epsilon) * torch.exp(- Dxy / sigma0) + epsilon) * torch.exp(-Dxy_org / sigma))
+        return Kxy
 
-def MMDu_linear_kernel(Fea, len_s, is_var_computed=True, use_1sample_U=True):
-    """compute value of (deep) linear-kernel MMD and std of (deep) lineaer-kernel MMD using merged data."""
+    def compute_UME_mean(self, X, Y, V): # compute mean of UME(X,Y)
+        """
+        Return the mean of the reduced
+        Here we don't assume X.shape == Y.shape !
+        X.shape = n1 x d, Y.shape = n2 x d, V.shape = J x d
+        Return a scalar
+        !!!! current version is biased
+        """
+        Kxv = self.compute_gram_matrix(X,V) # n1 x J
+        Kyv = self.compute_gram_matrix(Y,V) # n2 x J
+        mu_p_V = torch.mean(Kxv, axis=0) # J vector
+        mu_q_V = torch.mean(Kyv, axis=0) # J vector
+        t1 = torch.mean((mu_p_V-mu_q_V)**2)
+        t2 = 0
+        UME_mean = t1 - t2
+        return UME_mean
+    
+    def compute_scores(self, X, Y, Z, V):
+        """
+        T = UME^2(Z,X) - UME^2(Z,Y) = \sum f(Zi) - gamma(X,Y)
+        X : n x d, Y : n x d, Z : m x d, V : J x d
+        Return : [f(Zi)], a length=m vector
+        """
+        fea_pq = self.compute_feature_matrix(torch.cat((X,Y), dim=0), V) # n x J
+        gram_zw = self.compute_gram_matrix(Z, V) # m x J
+        J = V.shape[0]
+        # print(torch.matmul(fea_pq, gram_zw.t()))
+        result = - 2/np.sqrt(J) * torch.mean(torch.matmul(fea_pq, gram_zw.t()), dim=0) # n x m
+        return result
+        
+
+# save ckeckpoint
+def save_model(V, kernel, epoch, folder_path):
+    path = folder_path+str(epoch)+'/'
     try:
-        X = Fea[0:len_s, :]
-        Y = Fea[len_s:, :]
+        os.makedirs(path) 
     except:
-        X = Fea[0:len_s].unsqueeze(1)
-        Y = Fea[len_s:].unsqueeze(1)
-    Kx = X.mm(X.transpose(0,1))
-    Ky = Y.mm(Y.transpose(0,1))
-    Kxy = X.mm(Y.transpose(0,1))
-    return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
+        pass
+    torch.save(kernel.model.state_dict(), path+'model.pt')
+    torch.save(kernel.another_model.state_dict(), path+'another_model.pt')
+    torch.save(kernel.epsilonOPT, path+'epsilonOPT.pt')
+    torch.save(kernel.eps, path+'eps.pt')
+    torch.save(kernel.sigmaOPT, path+'sigmaOPT.pt')
+    torch.save(kernel.sigma0OPT, path+'sigma0OPT.pt')
+    torch.save(kernel.cst, path+'cst.pt')
+    torch.save(V, path+'V.pt')
 
-def load_model(model, another_model, path):
-    # model = DN().cuda()
-    # another_model = another_DN().cuda()
-    if path[2:9] == 'Scheffe':
-        model.load_state_dict(torch.load(path+'model.pt'))
-        model.eval()
-        print('Scheffe')
-        return model, None, 'Scheffe', None, None, None
-    elif path[2:10] == 'Gaussian':
-        model.load_state_dict(torch.load(path+'model.pt'))
-        model.eval()
-        print('Gaussian')
-        sigmaOPT = torch.load(path+'sigmaOPT.pt')
-        return model, None, 'Gaussian', sigmaOPT, None, None
-    elif path[2:9] == 'Fea_Gau':
-        model.load_state_dict(torch.load(path+'model.pt'))
-        model.eval()
-        print('Fea_Gau')
-        sigma0OPT = torch.load(path+'sigma0OPT.pt')
-        sigma0OPT.requires_grad = False
-        return model, None, 'Fea_Gau', None, sigma0OPT, None
-    else:
-        model.load_state_dict(torch.load(path+'model.pt'))
-        try:
-            another_model.load_state_dict(torch.load(path+'another_model.pt'))
-        except:
-            another_model = ConstModel().cuda()
-            print('No ResNet...')
-        try:
-            epsilonOPT = torch.load(path+'epsilonOPT.pt')
-            sigmaOPT = torch.load(path+'sigmaOPT.pt')
-            sigma0OPT = torch.load(path+'sigma0OPT.pt')
-            cst = torch.load(path+'cst.pt')
-            epsilonOPT.requires_grad = False
-            sigmaOPT.requires_grad = False
-            sigma0OPT.requires_grad = False
-            cst.requires_grad = False
-        except:
-            print('No eps, sigma,cst...')
-        model.eval()
-        another_model.eval()
-        return model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst
+# load checkpoint
+def load_model(folder_path, epoch=0):
+    # print('loading model from epoch', epoch)
+    path = folder_path+str(epoch)+'/'
+    model = DN().cuda()
+    model.load_state_dict(torch.load(path+'model.pt'))
+    another_model = another_DN().cuda()
+    another_model.load_state_dict(torch.load(path+'another_model.pt'))
+    epsilonOPT = torch.load(path+'epsilonOPT.pt')
+    sigmaOPT = torch.load(path+'sigmaOPT.pt')
+    sigma0OPT = torch.load(path+'sigma0OPT.pt')
+    eps = torch.load(path+'eps.pt')
+    cst = torch.load(path+'cst.pt')
+    V = torch.load(path+'V.pt')
+    kernel = NeuralKernel(model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, eps, cst)
+    return V, kernel
+
+
+def get_pval_from_evaluated_scores(X_score, Y_score, norm_or_binom=True, thres=None, verbose = False): # thres过的
+    if norm_or_binom==True: # 高斯
+        X_mean = torch.mean(X_score, dtype=dtype)
+        X_std = torch.std(X_score)
+        Y_mean = torch.mean(Y_score, dtype=dtype)
+        Y_std = torch.std(Y_score)
+        # 直接算平均的P的分数和方差，平均的Q的分数，然后加权
+        Z_score = (10*X_mean + Y_mean)/11
+        p_value = (Z_score-X_mean)/X_std*np.sqrt(1100)
+        if verbose:
+            print('#datapoints =', len(X_score), ', make sure #>10000 for 2 sig digits')
+            print('X_mean =', X_mean)
+            print('X_std =', X_std)
+            print('Y_mean =', Y_mean)
+            print('Y_std =', Y_std)
+            print('----------------------------------')
+            print('p_value = ', p_value)
+            print('----------------------------------')
+        return p_value
+    if norm_or_binom==False: # 二项
+        a = torch.mean(Y_score>thres, dtype=dtype).item() # sig->sig
+        b = torch.mean(X_score<thres, dtype=dtype).item() # bkg->bkg
+        E = 100*a + 1000*(1-b)
+        p_val = scipy.stats.binom.cdf(E, 1100, 1-b)
+        p_val = scipy.stats.norm.ppf(p_val)
+        return p_val 
+
+##############################################################################################################
 
 def compute_gamma(X, Y, model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst, 
                     dtype = torch.float, device = torch.device("cuda:0"),
@@ -474,32 +498,6 @@ def get_thres_at_once(X_eval, Y_eval,
     thres, sig_to_sig, back_to_back = get_thres(Scores)
     return thres, sig_to_sig, back_to_back
 
-def get_pval(X_score, Y_score, norm_or_binom=True, thres=None, verbose = False): # thres过的
-    if norm_or_binom==True: # 高斯
-        X_mean = torch.mean(X_score, dtype=dtype)
-        X_std = torch.std(X_score)
-        Y_mean = torch.mean(Y_score, dtype=dtype)
-        Y_std = torch.std(Y_score)
-        # 直接算平均的P的分数和方差，平均的Q的分数，然后加权
-        Z_score = (10*X_mean + Y_mean)/11
-        p_value = (Z_score-X_mean)/X_std*np.sqrt(1100)
-        if verbose:
-            print('#datapoints =', len(X_score), ', make sure #>10000 for 2 sig digits')
-            print('X_mean =', X_mean)
-            print('X_std =', X_std)
-            print('Y_mean =', Y_mean)
-            print('Y_std =', Y_std)
-            print('----------------------------------')
-            print('p_value = ', p_value)
-            print('----------------------------------')
-        return p_value
-    if norm_or_binom==False: # 二项
-        a = torch.mean(Y_score>thres, dtype=dtype).item() # sig->sig
-        b = torch.mean(X_score<thres, dtype=dtype).item() # bkg->bkg
-        E = 100*a + 1000*(1-b)
-        p_val = scipy.stats.binom.cdf(E, 1100, 1-b)
-        p_val = scipy.stats.norm.ppf(p_val)
-        return p_val 
 
 ###########
 def get_pval_at_once(X_eval, Y_eval, X_test, Y_test,
@@ -544,19 +542,6 @@ def get_thres_pval(PQhat, thres, pi=1/11, m=1100):
     p_val = scipy.stats.binom.cdf(E, m, 1-b)
     p_val = scipy.stats.norm.ppf(p_val)
     return p_val 
-
-    
-
-    
-def early_stopping(validation_losses, epoch):
-    i = np.argmin(validation_losses)
-    if epoch - i >= 5:
-        return True
-    else:
-        return False
-
-
-
 
 
 def plot_hist(P_scores, Q_scores):

@@ -1,11 +1,9 @@
 import numpy as np
 import torch
-from utils import *
+from utils_UME import *
 from matplotlib import pyplot as plt
 import os
 from tqdm import tqdm, trange
-import os
-import matplotlib.pyplot as plt
 # import autograd.numpy as np
 import pickle
 import sys
@@ -21,202 +19,6 @@ np.random.seed(42)
 
 debug = False
 
-# define network
-H = 300
-out = 10
-x_in = 28
-L = 1
-class DN(torch.nn.Module):
-    def __init__(self):
-        super(DN, self).__init__()
-        self.restored = False
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(x_in, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, out, bias=True),
-        )
-    def forward(self, input):
-        output = self.model(input)
-        return output
-
-class another_DN(torch.nn.Module):
-    def __init__(self, H=300, out=100):
-        super(another_DN, self).__init__()
-        self.restored = False
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(28, H, bias=True),
-            torch.nn.Tanh(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.Tanh(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.Tanh(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.Tanh(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.Tanh(),
-            torch.nn.Linear(H, 28, bias=True),
-        )
-    def forward(self, input):
-        output = input + self.model(input) 
-        return output
-
-# Since we use pytorch rather than autograd.np, we don't follow the inheritance kernel class in the kmod package
-class NeuralKernel():
-    """
-    A neural net + a isotropic Gaussian kernel.
-    """
-    def __init__(self, model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, eps, cst):
-        self.model = model
-        self.another_model = another_model
-        self.epsilonOPT = epsilonOPT
-        self.sigmaOPT = sigmaOPT
-        self.sigma0OPT = sigma0OPT
-        self.eps = eps
-        self.cst = cst
-        self.params = list(model.parameters())+list(another_model.parameters())+[epsilonOPT]+[sigmaOPT]+[sigma0OPT]+[eps]+[cst]
-
-    def compute_feature_matrix(self, XY, V): 
-        """
-        Compute fea_pq = psi_p(V)-psi_q(V), whose shape is n x J
-
-        Parameters
-        ----------
-        XY : (n1+n2) x d numpy array
-        V : J x d numpy array
-
-        Return
-        ------
-        fea_pq : n x J numpy array
-        """
-        n = len_X = XY.shape[0]//2
-        J = V.shape[0]
-
-        cst = self.cst
-        sigma0 = self.sigma0OPT ** 2
-        sigma = self.sigmaOPT ** 2
-        epsilon = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
-
-        model_XY = self.model(XY)
-        another_model_XY = self.another_model(XY)
-        model_X = model_XY[0:len_X, :]
-        model_Y = model_XY[len_X:, :]
-        another_model_X = another_model_XY[0:len_X, :]
-        another_model_Y = another_model_XY[len_X:, :]
-
-        model_V = self.model(V)
-        another_model_V = self.another_model(V)
-
-        Dxv = Pdist2(model_X, model_V)
-        Dyv = Pdist2(model_Y, model_V)
-        Dxv_org = Pdist2(another_model_X, another_model_V)
-        Dyv_org = Pdist2(another_model_Y, another_model_V)
-
-        Kxv = cst* (((1-epsilon) * torch.exp(- Dxv / sigma0) + epsilon) * torch.exp(-Dxv_org / sigma))
-        Kyv = cst* (((1-epsilon) * torch.exp(- Dyv / sigma0) + epsilon) * torch.exp(-Dyv_org / sigma))
-
-        fea_pq = 1/np.sqrt(J) * (Kxv - Kyv)
-
-        if debug:
-            # plt.scatter(model_V.cpu().detach().numpy()[:,0], model_V.cpu().detach().numpy()[:,1], label='V', alpha=0.5)
-            # plt.scatter(model_X.cpu().detach().numpy()[:,0], model_X.cpu().detach().numpy()[:,1], label='X', alpha=0.5)
-            # plt.scatter(model_Y.cpu().detach().numpy()[:,0], model_Y.cpu().detach().numpy()[:,1], label='Y', alpha=0.5)
-            # plt.legend()
-            # plt.savefig('VXY_feature.png')
-            # plt.clf()
-            print(sigma0.item(), sigma.item(), epsilon.item(), cst.item())
-
-
-        return fea_pq
-        
-    def compute_UME_mean_variance(self, XY, V): # compute mean and var of UME(X,Y)
-        """
-        Return the mean and variance of the reduced
-        test statistic = \sqrt{n} UME(P, Q)^2
-        The estimator of the mean is unbiased (can be negative).
-
-        returns: (mean, variance)
-        """
-        # get the feature matrices psi (correlated)
-        # fea_pq = psi_p(V)-psi_q(V) = n x J,
-        J = V.shape[0]
-        n = XY.shape[0]//2
-
-        fea_pq = self.compute_feature_matrix(XY, V) # n x J
-        
-        # if debug:
-            # plt.scatter(XY.cpu().detach().numpy()[:n,0], XY.cpu().detach().numpy()[:n,1], label='X', alpha=0.5)
-            # plt.scatter(XY.cpu().detach().numpy()[n:,0], XY.cpu().detach().numpy()[n:,1], label='Y', alpha=0.5)
-            # plt.scatter(V.cpu().detach().numpy()[:,0], V.cpu().detach().numpy()[:,1], label='V', alpha=0.5)
-            # plt.legend()
-            # plt.savefig('VXY.png')
-            # plt.clf()
-
-            # plt.matshow(fea_pq.cpu().detach().numpy())
-            # plt.colorbar()
-            # plt.savefig('fea_pq.png')
-            # plt.clf()
-
-        # compute the mean 
-        t1 = torch.sum(torch.mean(fea_pq, axis=0)**2) * (n/float(n-1))
-        t2 = torch.mean(torch.sum(fea_pq**2, axis=1)) / float(n-1)
-        UME_mean = t1 - t2
-
-        # compute the variance
-        mu = torch.mean(fea_pq, axis=0, keepdim=True) # J*1 vector
-        mu = mu.t()
-        # ! note that torch.dot does not support broadcasting
-        UME_variance = 4.0*torch.mean(torch.matmul(fea_pq, mu)**2) - 4.0*torch.sum(mu**2)**2
-
-        if debug:
-            print('mean', UME_mean.item(), 'var', UME_variance.item())
-        return UME_mean, UME_variance
-    
-    def clamp(self):
-        with torch.no_grad():
-            self.cst.clamp_(min=0.5, max=2.0)
-            self.epsilonOPT.clamp_(min=-10.0, max=10.0)
-            self.sigmaOPT.clamp_(min=0.0, max=30.0)
-            self.sigma0OPT.clamp_(min=0.0, max=30.0)
-
-# save ckeckpoint
-def save_model(V, kernel, epoch, folder_path):
-    path = folder_path+str(epoch)+'/'
-    try:
-        os.makedirs(path) 
-    except:
-        pass
-    torch.save(kernel.model.state_dict(), path+'model.pt')
-    torch.save(kernel.another_model.state_dict(), path+'another_model.pt')
-    torch.save(kernel.epsilonOPT, path+'epsilonOPT.pt')
-    torch.save(kernel.sigmaOPT, path+'sigmaOPT.pt')
-    torch.save(kernel.sigma0OPT, path+'sigma0OPT.pt')
-    torch.save(kernel.cst, path+'cst.pt')
-    torch.save(V, path+'V.pt')
-
-# load checkpoint
-def load_model(folder_path, epoch=0):
-    print('loading model from epoch', epoch)
-    path = folder_path+str(epoch)+'/'
-    model = DN().cuda()
-    model.load_state_dict(torch.load(path+'model.pt'))
-    another_model = another_DN().cuda()
-    another_model.load_state_dict(torch.load(path+'another_model.pt'))
-    epsilonOPT = torch.load(path+'epsilonOPT.pt')
-    sigmaOPT = torch.load(path+'sigmaOPT.pt')
-    sigma0OPT = torch.load(path+'sigma0OPT.pt')
-    eps = torch.load(path+'eps.pt')
-    cst = torch.load(path+'cst.pt')
-    V = torch.load(path+'V.pt')
-    kernel = NeuralKernel(model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, eps, cst)
-    return V, kernel
 
 # define the loss function
 def power_criterion_mix(XY, V, kernel): #  objective to maximize, 
@@ -295,7 +97,7 @@ def optimize_3sample_criterion_and_kernel(prepared_batched_XY, # total_S, is a l
             plt.clf()
             print('Best epoch:', np.argmin(validation_ratio_list))
             with open(chechpoint_folder_path+'data.pickle', 'wb') as f:
-                pickle.dump({'best': np.argmin(validation_ratio_list)}, f)
+                pickle.dump({'epoch': t}, f)
             return V, kernel
     return V, kernel
 
@@ -372,17 +174,17 @@ def train(n_tr, J=None, # size of X_tr, Y_tr and W=V
 
 
 if __name__ == "__main__":
-    dataset = np.load('../../../../Datasets/HIGGS_first_200_000.npy')
+    dataset = np.load('HIGGS.npy')
     print('signal : background =',np.sum(dataset[:,0]),':',dataset.shape[0]-np.sum(dataset[:,0]))
     print('signal :',np.sum(dataset[:,0])/dataset.shape[0]*100,'%')
     # split into signal and background
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5170877, 28)
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5829122, 28) 
 
-    n_tr_list = [80_000]
-    # for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
-    #     for i in range(11):
-    #         n_list.append(n+i)
+    n_tr_list = []
+    for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
+        for i in range(10):
+            n_tr_list.append(n+i)
     
     for n_tr in n_tr_list:
         print('------ n =', n_tr, '------')
@@ -391,7 +193,7 @@ if __name__ == "__main__":
             batch_size=2048, N_epoch=501, learning_rate=0.01, momentum=0.9, # optimizer
             print_every=10, # print and save checkpoint
             early_stopping=early_stopping, # early stopping boolean function
-            fig_loss_epoch_name=sys.path[0]+'/loss_epoch.png', # name of the loss vs epoch figure
+            fig_loss_epoch_name=sys.path[0]+'/checkpoints n_tr=%d/loss_epoch.png'%n_tr, # name of the loss vs epoch figure
             chechpoint_folder_path = sys.path[0]+'/checkpoints n_tr=%d/'%n_tr, # folder path to save checkpoint
             )
 
