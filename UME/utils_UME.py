@@ -190,20 +190,21 @@ class NeuralKernel():
         ------
         fea_pq : n1 x n2 numpy array
         """
-        cst = self.cst
-        sigma0 = self.sigma0OPT ** 2
-        sigma = self.sigmaOPT ** 2
-        epsilon = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
+        with torch.no_grad():
+            cst = self.cst
+            sigma0 = self.sigma0OPT ** 2
+            sigma = self.sigmaOPT ** 2
+            epsilon = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
 
-        model_X = self.model(X)
-        model_Y = self.model(Y)
-        another_model_X = self.another_model(X)
-        another_model_Y = self.another_model(Y)
+            model_X = self.model(X)
+            model_Y = self.model(Y)
+            another_model_X = self.another_model(X)
+            another_model_Y = self.another_model(Y)
 
-        Dxy = Pdist2(model_X, model_Y)
-        Dxy_org = Pdist2(another_model_X, another_model_Y)
-        Kxy = cst* (((1-epsilon) * torch.exp(- Dxy / sigma0) + epsilon) * torch.exp(-Dxy_org / sigma))
-        return Kxy
+            Dxy = Pdist2(model_X, model_Y)
+            Dxy_org = Pdist2(another_model_X, another_model_Y)
+            Kxy = cst* (((1-epsilon) * torch.exp(- Dxy / sigma0) + epsilon) * torch.exp(-Dxy_org / sigma))
+            return Kxy
 
     def compute_UME_mean(self, X, Y, V): # compute mean of UME(X,Y)
         """
@@ -213,14 +214,15 @@ class NeuralKernel():
         Return a scalar
         !!!! current version is biased
         """
-        Kxv = self.compute_gram_matrix(X,V) # n1 x J
-        Kyv = self.compute_gram_matrix(Y,V) # n2 x J
-        mu_p_V = torch.mean(Kxv, axis=0) # J vector
-        mu_q_V = torch.mean(Kyv, axis=0) # J vector
-        t1 = torch.mean((mu_p_V-mu_q_V)**2)
-        t2 = 0
-        UME_mean = t1 - t2
-        return UME_mean
+        with torch.no_grad():
+            Kxv = self.compute_gram_matrix(X,V) # n1 x J
+            Kyv = self.compute_gram_matrix(Y,V) # n2 x J
+            mu_p_V = torch.mean(Kxv, axis=0) # J vector
+            mu_q_V = torch.mean(Kyv, axis=0) # J vector
+            t1 = torch.mean((mu_p_V-mu_q_V)**2)
+            t2 = 0
+            UME_mean = t1 - t2
+            return UME_mean
     
     def compute_scores(self, X, Y, Z, V):
         """
@@ -228,12 +230,13 @@ class NeuralKernel():
         X : n x d, Y : n x d, Z : m x d, V : J x d
         Return : [f(Zi)], a length=m vector
         """
-        fea_pq = self.compute_feature_matrix(torch.cat((X,Y), dim=0), V) # n x J
-        gram_zw = self.compute_gram_matrix(Z, V) # m x J
-        J = V.shape[0]
-        # print(torch.matmul(fea_pq, gram_zw.t()))
-        result = - 2/np.sqrt(J) * torch.mean(torch.matmul(fea_pq, gram_zw.t()), dim=0) # n x m
-        return result
+        with torch.no_grad():
+            fea_pq = self.compute_feature_matrix(torch.cat((X,Y), dim=0), V) # n x J
+            gram_zw = self.compute_gram_matrix(Z, V) # m x J
+            J = V.shape[0]
+            # print(torch.matmul(fea_pq, gram_zw.t()))
+            result = - 2/np.sqrt(J) * torch.mean(torch.matmul(fea_pq, gram_zw.t()), dim=0) # n x m
+            return result
         
 
 # save ckeckpoint
@@ -289,6 +292,7 @@ def get_pval_from_evaluated_scores(X_score, Y_score, norm_or_binom=True, thres=N
             print('p_value = ', p_value)
             print('----------------------------------')
         return p_value
+    
     if norm_or_binom==False: # 二项
         a = torch.mean(Y_score>thres, dtype=dtype).item() # sig->sig
         b = torch.mean(X_score<thres, dtype=dtype).item() # bkg->bkg
@@ -296,6 +300,40 @@ def get_pval_from_evaluated_scores(X_score, Y_score, norm_or_binom=True, thres=N
         p_val = scipy.stats.binom.cdf(E, 1100, 1-b)
         p_val = scipy.stats.norm.ppf(p_val)
         return p_val 
+
+def get_auc_from_evaluated_scores(X,Y):
+    M = X.shape[0]
+    outcome = np.concatenate((np.zeros(M), np.ones(M)))
+    df = pd.DataFrame(torch.cat((X,Y), dim=0), columns=['Higgs_Default'])
+    roc = pyroc.ROC(outcome, df)
+    auc = roc.auc
+    pred = roc.preds['Higgs_Default'] # 长度是2M
+    #print(pred.shape)
+    fpr, tpr = roc._roc(pred) # False positive rate, True positive rate
+    #print(fpr.shape, tpr.shape)
+    signal_to_signal_rate = tpr # 1认成1
+    background_to_background_rate = 1 - fpr # 0认成0 = 1 - 0认成1
+    return auc, signal_to_signal_rate, background_to_background_rate
+
+def get_thres_from_evaluated_scores(X, Y):
+    auc, x, y = get_auc_from_evaluated_scores(X,Y)
+    E = 100*x+1000*(1-y)
+    p_val = scipy.stats.binom.cdf(E, 1100, 1-y)
+    p_list = scipy.stats.norm.ppf(p_val)
+    p_list[p_list==np.inf] = 0
+    #p_list = p_list[p_list.shape[0]//10 : p_list.shape[0]//10*9]
+    sorted = np.sort(np.unique(torch.cat((X,Y), dim=0)), axis=None)
+    i = np.argmax(p_list)
+
+    # print(sorted[i], np.max(PQhat), np.min(PQhat))
+    # print('thres=', sorted[i], ',max=', np.max(PQhat), ',min=', np.min(PQhat))
+    # plt.plot(sorted, p_list)
+    # plt.axvline(x=sorted[i], color='r', label='thres')
+    # plt.savefig('p-thres.png')
+    # print('In get_thres(), p-thres.png saved')
+    # plt.show()
+
+    return sorted[i], x[i], y[i]
 
 ##############################################################################################################
 
@@ -448,39 +486,6 @@ def compute_score_func(Z, X, Y,
         gc.collect()
         return phi_Z
 
-def get_auc_and_x_and_y(PQhat):
-    M = PQhat.shape[0]//2
-    outcome = np.concatenate((np.zeros(M), np.ones(M)))
-    df = pd.DataFrame(PQhat, columns=['Higgs_Default'])
-    roc = pyroc.ROC(outcome, df)
-    auc = roc.auc
-    pred = roc.preds['Higgs_Default'] # 长度是2M
-    #print(pred.shape)
-    fpr, tpr = roc._roc(pred) # False positive rate, True positive rate
-    #print(fpr.shape, tpr.shape)
-    signal_to_signal_rate = tpr # 1认成1
-    background_to_background_rate = 1 - fpr # 0认成0 = 1 - 0认成1
-    return auc, signal_to_signal_rate, background_to_background_rate
-
-def get_thres(PQhat):
-    auc, x, y = get_auc_and_x_and_y(PQhat)
-    E = 100*x+1000*(1-y)
-    p_val = scipy.stats.binom.cdf(E, 1100, 1-y)
-    p_list = scipy.stats.norm.ppf(p_val)
-    p_list[p_list==np.inf] = 0
-    #p_list = p_list[p_list.shape[0]//10 : p_list.shape[0]//10*9]
-    sorted = np.sort(np.unique(PQhat), axis=None)
-    i = np.argmax(p_list)
-
-    print(sorted[i], np.max(PQhat), np.min(PQhat))
-    print('thres=', sorted[i], ',max=', np.max(PQhat), ',min=', np.min(PQhat))
-    plt.plot(sorted, p_list)
-    plt.axvline(x=sorted[i], color='r', label='thres')
-    plt.savefig('p-thres.png')
-    print('In get_thres(), p-thres.png saved')
-    plt.show()
-
-    return sorted[i], x[i], y[i]
 
 def get_thres_at_once(X_eval, Y_eval,
                       model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst,
