@@ -14,6 +14,10 @@ import gc
 from IPython.display import clear_output
 import pickle
 import config
+import numpy as np
+import config
+import sys
+import pickle
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]= config.test_param_configs['gpu_id'] # specify which GPU(s) to be used
@@ -90,6 +94,32 @@ def simulate_p_value(n_tr, n_ev, n_te,
         # plt.savefig(folder_path+'hist.png')
     return p_soft_list, p_hard_list
 
+def package_pval_data():
+    ns = config.test_param_configs['n_tr_list']
+    pval_mid_path = config.expr_configs['pval_mat_path']
+
+    num_models = config.test_param_configs['num_models']
+    num_repeats = config.test_param_configs['num_repeats']
+
+    pval_dict = {}
+    pval_dict['UME'] = {}
+    pval_dict['UME']['soft'] = {}
+    pval_dict['UME']['hard'] = {}
+
+    for n_tr in ns:
+        print("------------------- n_tr = %d -------------------"%n_tr)
+        p_soft_mat = np.load(sys.path[0]+pval_mid_path+'/n_tr=%d_soft.npy'%n_tr)
+        p_hard_mat = np.load(sys.path[0]+pval_mid_path+'/n_tr=%d_hard.npy'%n_tr)
+        assert p_soft_mat.shape == p_hard_mat.shape == (num_models, num_repeats)
+        pval_dict['UME']['soft'][n_tr] = p_soft_mat
+        pval_dict['UME']['hard'][n_tr] = p_hard_mat
+
+    with open(sys.path[0]+pval_mid_path+'/pval_dict.pkl', 'wb') as f:
+        pickle.dump(pval_dict, f, pickle.HIGHEST_PROTOCOL)
+
+
+
+
 if __name__ == "__main__":
     dataset = np.load(config.resource_configs['Higgs_path'])
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5829122, 28)
@@ -134,3 +164,5 @@ if __name__ == "__main__":
         gc.collect()
         torch.cuda.empty_cache()
         clear_output(wait=True)
+
+    package_pval_data()
