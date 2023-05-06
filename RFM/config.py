@@ -9,23 +9,23 @@ expr_configs = {
 }
 
 resource_configs = {
-    'Higgs_path': './Datasets/HIGGS.npy',
+    'Higgs_path': '/math/home/eruisun/Datasets/HIGGS.npy',
 }
 
 train_param_configs = {
-    'gpu_id': '5',
+    'gpu_id': '7',
     'n_tr_list': [1300000, 1000000, 700000, 400000, 200000, 50000],
-    'repeats': 10,
-    'batch_size': 2048,
+    'repeats': 1,
+    'batch_size': 10000,
     'N_epoch': 501,
 }
 
 test_param_configs = {
     'gpu_id': '6',
     'n_tr_list': [1300000, 1000000, 700000, 400000, 200000, 50000],
-    'num_models': 10, # same as train.repeats
-    'num_repeats': 10,
-    'n_ev': 20000,
+    'num_models': 1, # same as train.repeats
+    'num_repeats': 1,
+    'n_ev': 10000,
     'n_te': 10000,
     'test_hard': True,
     'test_soft': True,

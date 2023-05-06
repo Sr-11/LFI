@@ -14,7 +14,7 @@ os.environ["CUDA_VISIBLE_DEVICES"]= config.train_param_configs['gpu_id'] # speci
 # os.environ['CUDA_LAUNCH_BLOCKING']='1'
  
 torch.backends.cudnn.deterministic = True
-dtype = torch.float
+dtype =	 torch.float
 device = torch.device("cuda:0")
 torch.manual_seed(42)
 np.random.seed(42)
@@ -77,13 +77,14 @@ if __name__ == "__main__":
         for i in range(10000):
             validateset.append((dataset_P[n_tr+i], zero_in_gpu))
             validateset.append((dataset_Q[n_tr+i], one_in_gpu))
-        test_loader = torch.utils.data.DataLoader(validateset, batch_size=batch_size, shuffle=False)
+        test_loader = torch.utils.data.DataLoader(validateset, batch_size=10000, shuffle=False)
         # run rfm
         try: #make dir
             os.mkdir(checkpoints_path+'/n_tr=%d'%n_tr)
         except:
             pass
-        M = rfm(train_loader, test_loader, iters=N_epoch, loader=True, classif=False, device=device, 
+        M = rfm(train_loader, test_loader, iters=N_epoch, loader=True, classif=False, 
+                device=device, dtype=dtype,
                    checkpoint_path=checkpoints_path+'/n_tr=%d'%n_tr,
                    early_stopping=early_stopping)
         

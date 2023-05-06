@@ -10,21 +10,17 @@ def laplace_kernel_M(pair1, pair2, bandwidth, M):
     return kernels.laplacian_M(pair1, pair2, bandwidth, M)
 
 
-def get_grads(X, sol, L, P, batch_size=2, device='cpu', verbose=False):
-    M = 0.
-
-    num_samples = 20000
+def get_grads(X, sol, L, P, batch_size=2, device='cpu', dtype=torch.float, verbose=False):
+    num_samples = len(X)#20000
     indices = np.random.randint(len(X), size=num_samples)
-
     if len(X) > len(indices):
         x = X[indices, :]
     else:
         x = X
-
     K = laplace_kernel_M(X, x, L, P)
 
     dist = kernels.euclidean_distances_M(X, x, P, squared=False)
-    dist = torch.where(dist < 1e-10, torch.zeros(1, device=device), dist)
+    dist = torch.where(dist < 1e-10, torch.zeros(1, device=device, dtype=dtype), dist)
 
     K = K/dist
     K[K == float("Inf")] = 0.
@@ -39,49 +35,42 @@ def get_grads(X, sol, L, P, batch_size=2, device='cpu', verbose=False):
     step1 = a1 @ X1
     del a1, X1
     step1 = step1.reshape(-1, c*d)
-
     step2 = K.T @ step1
     del step1
-
     step2 = step2.reshape(-1, c, d)
-
     a2 = sol
     step3 = (a2 @ K).T
-
     del K, a2
-
     step3 = step3.reshape(m, c, 1)
     x1 = (x @ P).reshape(m, 1, d)
     step3 = step3 @ x1
-
-    G = (step2 - step3) * -1/L
-
-    M = 0.
-
-    bs = batch_size
-    batches = torch.split(G, bs)
-    if verbose:
-        for i in tqdm(range(len(batches))):
-            grad = batches[i]
-            gradT = torch.transpose(grad, 1, 2)
-            M += torch.sum(gradT @ grad, dim=0)
-            del grad, gradT
-    else:
-        for i in range(len(batches)):
-            grad = batches[i]
-            gradT = torch.transpose(grad, 1, 2)
-            M += torch.sum(gradT @ grad, dim=0)
-            del grad, gradT
-    M /= len(G)
+    G = (step2 - step3) * -1/L # (batch_size, 1, 28)
+    M = torch.sum(torch.transpose(G, 1, 2) @ G, dim=0) / len(G)
+    del step3, step2, x1, G
+    # M = 0.
+    # bs = batch_size
+    # batches = torch.split(G, bs)
+    # if verbose:
+    #     for i in tqdm(range(len(batches))):
+    #         grad = batches[i]
+    #         gradT = torch.transpose(grad, 1, 2)
+    #         M += torch.sum(gradT @ grad, dim=0)
+    #         del grad, gradT
+    # else:
+    #     for i in range(len(batches)):
+    #         grad = batches[i]
+    #         gradT = torch.transpose(grad, 1, 2)
+    #         M += torch.sum(gradT @ grad, dim=0)
+    #         del grad, gradT
+    # M /= len(G)
     # M = M.numpy()
-
     return M
 
 
 def rfm(train_loader, test_loader,
         iters=3, name=None, batch_size=2, reg=1e-3,
         train_acc=False, loader=True, classif=True,
-        device=torch.device('cpu'),
+        device=torch.device('cpu'), dtype=torch.float32,
         checkpoint_path=None,
         early_stopping=None,):
 
@@ -101,7 +90,7 @@ def rfm(train_loader, test_loader,
         
     _, d = X_test.shape
 
-    M = torch.eye(d, device = device)
+    M = torch.eye(d, device = device, dtype=dtype)
     
     MSE_list = []
     break_flag = False
@@ -109,8 +98,8 @@ def rfm(train_loader, test_loader,
         train_loader_iter = iter(train_loader)
         for X_train, y_train in tqdm(train_loader_iter):
             K_train = laplace_kernel_M(X_train, X_train, L, M)
-            sol = solve(K_train + reg * torch.eye(len(K_train), device = device), y_train).T # Find the inverse matrix, alpha in the paper
-            M  = get_grads(X_train, sol, L, M, batch_size=batch_size, device=device, verbose=False)
+            sol = solve(K_train + reg * torch.eye(len(K_train), device = device, dtype=dtype), y_train).T # Find the inverse matrix, alpha in the paper
+            M  = get_grads(X_train, sol, L, M, batch_size=batch_size, device=device, dtype=dtype, verbose=False)
             # validation
             K_test = laplace_kernel_M(X_train, X_test, L, M)
             preds = (sol @ K_test).T
