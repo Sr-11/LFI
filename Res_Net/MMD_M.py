@@ -14,6 +14,10 @@ from numba import cuda
 from tqdm import tqdm, trange
 import os
 import gc
+import sys
+sys.path.append(sys.path[0]+"/..")
+import global_config
+
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="7" 
 torch.backends.cudnn.deterministic = True
@@ -77,7 +81,7 @@ def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
 
 # save checkpoint
 def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
-    path = './checkpoint%d/'%n+str(epoch)+'/'
+    path = sys.path[0]+'/checkpoint%d/'%n+str(epoch)+'/'
     try:
         os.makedirs(path) 
     except:
@@ -111,7 +115,7 @@ def train(n, learning_rate=5e-4,
             momentum = 0.9, weight_decay=0.0,):  
     n_backup = n
     try:
-        os.mkdir('./checkpoint%d'%n_backup)
+        os.mkdir(sys.path[0]+'/checkpoint%d'%n_backup)
     except:
         pass
     #cuda.select_device(0)
@@ -183,13 +187,13 @@ def train(n, learning_rate=5e-4,
             #print(sigmaOPT.item(), sigma0OPT.item(), epsilonOPT.item())
         if t%print_every==0:
             plt.plot(J_validations[:t])
-            plt.savefig('./checkpoint%d/J_validations.png'%n_backup)
+            plt.savefig(sys.path[0]+'/checkpoint%d/J_validations.png'%n_backup)
             plt.clf()
             save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=t)
                 
-        if early_stopping(J_validations, t) and J_validations[t]<-0.1:
+        if early_stopping(J_validations, t) and J_validations[t]<-0.001:
             plt.plot(J_validations[:t])
-            plt.savefig('./checkpoint%d/J_validations.png'%n_backup)
+            plt.savefig(sys.path[0]+'/checkpoint%d/J_validations.png'%n_backup)
             plt.clf()
             save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0)
             return model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst,J_validations[t]
@@ -198,15 +202,17 @@ def train(n, learning_rate=5e-4,
 
 if __name__ == "__main__":
     # load data, please use .npy ones (40000), .gz (10999999)(11e6) is too large.
-    dataset = np.load('../HIGGS.npy')
+    
+    dataset = np.load(sys.path[0]+'/../HIGGS.npy')
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5829122, 28)
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28)
 
-    n_list = [1300000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 10000, 60000, 3000, 1000]
-    for i in range(11):
-        for n in [1300000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 10000, 60000, 3000, 1000]:
+    n_list = []
+    for i in range(global_config.train_param_configs['repeats']):
+        for n in global_config.train_param_configs['n_tr_list']:
             n_list.append(n+i)
 
+    print_every = global_config.train_param_configs['print_every']
     for n in n_list:
         gc.collect()
         torch.cuda.empty_cache()
@@ -215,12 +221,11 @@ if __name__ == "__main__":
             print(n)
             model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst,J = train(n, 
                 N_epoch = 501, # 只load就设成1
-                print_every = 1, 
+                print_every = print_every, 
                 batch_size = 1024, 
                 learning_rate =2e-3, 
                 SGD = True, 
                 dataset_P = dataset_P, dataset_Q = dataset_Q, #Mixture
                 momentum=0.99, weight_decay=0.000)
-            if J<-0.1:
+            if J<-0.01:
                 break
-    

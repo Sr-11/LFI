@@ -254,7 +254,7 @@ def get_pval(X_score, Y_score, verbose = False):
 
 def early_stopping(validation_losses, epoch):
     i = np.argmin(validation_losses)
-    print(i)
+    # print(i)
     if epoch - i > 10:
         return True
     else:

@@ -17,6 +17,11 @@ import gc
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
 
+import sys
+sys.path.append(sys.path[0]+"/..")
+import global_config
+print_every = global_config.train_param_configs['print_every']
+
 # Define the network structure
 H = 300
 out = 100
@@ -74,7 +79,7 @@ def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
 
 # save checkpoint
 def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
-    path = './checkpoint%d/'%n+str(epoch)+'/'
+    path = sys.path[0]+'/checkpoint%d/'%n+str(epoch)+'/'
     try:
         os.makedirs(path) 
     except:
@@ -109,7 +114,7 @@ def train(n, learning_rate=5e-4,
             momentum = 0.9, weight_decay=0.0,):  
     n_backup = n
     try:
-        os.mkdir('./checkpoint%d'%n_backup)
+        os.mkdir(sys.path[0]+'/checkpoint%d'%n_backup)
     except:
         pass
     #set random seed for torch and numpy
@@ -164,8 +169,8 @@ def train(n, learning_rate=5e-4,
     else:
         optimizer_u = torch.optim.Adam(params, lr=learning_rate)
     # validation data
-    S1_v = np.concatenate((dataset_P[np.random.choice(n, 10000, replace=False)], 
-                            dataset_Q[np.random.choice(n, 10000, replace=False)]), axis=0)
+    S1_v = np.concatenate((dataset_P[n+np.random.choice(10000, 10000, replace=False)], 
+                            dataset_Q[n+np.random.choice(10000, 10000, replace=False)]), axis=0)
     S1_v = MatConvert(S1_v, device, dtype)
     J_validations = np.ones([N_epoch])*np.inf
     mmd_val_validations = np.zeros([N_epoch])
@@ -174,9 +179,8 @@ def train(n, learning_rate=5e-4,
     # start training
     #############################
     for t in range(N_epoch):
-        print('epoch',t)
         order = np.random.permutation(batches)
-        for ind in tqdm(order):
+        for ind in order:
             optimizer_u.zero_grad()
             # calculate parameters
             ep = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
@@ -203,17 +207,20 @@ def train(n, learning_rate=5e-4,
             TEMP = MMDu(modelu_output, 10000, another_output, sigma, sigma0_u, ep, cst, L=L)
             mmd_value_temp, mmd_var_temp = -TEMP[0], TEMP[1]
             J_validations[t] = crit(mmd_value_temp, mmd_var_temp).item()
-            print('J_validation =', J_validations[t])
+
         if t%print_every==0:
+            print('epoch',t)
+            print('J_validation =', J_validations[t])
+
             plt.plot(J_validations[:t])
-            plt.savefig('./checkpoint%d/J_validations.png'%n_backup)
+            plt.savefig(sys.path[0]+'/checkpoint%d/J_validations.png'%n_backup)
             plt.clf()
             save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=t)
 
         if early_stopping(J_validations, t) and J_validations[t]<-0.1:
             save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0)
             plt.plot(J_validations[:t])
-            plt.savefig('./checkpoint%d/J_validations.png'%n_backup)
+            plt.savefig(sys.path[0]+'/checkpoint%d/J_validations.png'%n_backup)
             plt.clf()
             return model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst
             
@@ -221,7 +228,7 @@ def train(n, learning_rate=5e-4,
 
 
 if __name__ == "__main__":
-    dataset = np.load('../HIGGS.npy')
+    dataset = np.load(sys.path[0]+'/../HIGGS.npy')
     print('signal : background =',np.sum(dataset[:,0]),':',dataset.shape[0]-np.sum(dataset[:,0]))
     print('signal :',np.sum(dataset[:,0])/dataset.shape[0]*100,'%')
     # split into signal and background
@@ -229,15 +236,16 @@ if __name__ == "__main__":
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28)
     #np.random.shuffle(dataset_Q)
 
-    n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
-    for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
-        for i in range(11):
+    
+    n_list = []
+    for i in range(global_config.train_param_configs['repeats']):
+        for n in global_config.train_param_configs['n_tr_list']:
             n_list.append(n+i)
 
     for n in n_list:
         train(n, 
             N_epoch = 501,
-            print_every = 5, 
+            print_every = print_every, 
             batch_size = 1024, 
             learning_rate = 2e-3, 
             SGD = False, 

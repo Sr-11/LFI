@@ -12,6 +12,10 @@ import time
 device = torch.device("cuda:0")
 dtype = torch.float32
 
+H = 300
+out= 100
+L = 1
+
 class ConstModel(torch.nn.Module):
     def __init__(self):
         super(ConstModel, self).__init__()
@@ -109,6 +113,31 @@ class Classifier(torch.nn.Module):
     def forward(self, input):
         output = self.model(input)
         return output
+
+
+class DN_LBI(torch.nn.Module):
+    def __init__(self, H):
+        super(DN_LBI, self).__init__()
+        self.restored = False
+        self.model = torch.nn.Sequential(
+            torch.nn.Linear(28, H, bias=True),
+            torch.nn.Tanh(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.Tanh(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.Tanh(),
+            torch.nn.Linear(H, H, bias=True),
+            torch.nn.Tanh(),
+            torch.nn.Linear(H, 1, bias=True),
+        )
+        self.out = torch.nn.Sigmoid()
+    def forward(self, input):
+        output = self.model(input)
+        output = self.out(output)
+        return output
+    def LBI(self, x):
+        return self.model(x)
+
 
 def get_item(x, is_cuda):
     """get the numpy value from a torch tensor."""
@@ -232,6 +261,12 @@ def MMDu_linear_kernel(Fea, len_s, is_var_computed=True, use_1sample_U=True):
     Ky = Y.mm(Y.transpose(0,1))
     Kxy = X.mm(Y.transpose(0,1))
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
+
+
+
+
+
+
 
 def load_model(model, another_model, path):
     # model = DN().cuda()
@@ -609,3 +644,127 @@ def get_auc_and_x_and_y(PQhat):
     signal_to_signal_rate = tpr # 1认成1
     background_to_background_rate = 1 - fpr # 0认成0 = 1 - 0认成1
     return auc, signal_to_signal_rate, background_to_background_rate
+
+
+
+
+
+
+def compute_gamma(X, Y, model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst, 
+                    dtype = torch.float, device = torch.device("cuda:0"),
+                    MonteCarlo = 100): 
+    nx = X.shape[0]
+    try:
+        X = MatConvert(X, device, dtype)
+        Y = MatConvert(Y, device, dtype)
+    except:
+        print('MatConvert error, could be already in GPU')
+    L = 1 # generalized Gaussian (if L>1)
+    if nx<=10000:
+        if epsilonOPT=='Scheffe':
+            return None, None, None
+        elif epsilonOPT=='Gaussian':
+            sigma = sigmaOPT ** 2
+            Dxx_org = Pdist2(X, X)
+            Dyy_org = Pdist2(Y, Y)
+            Dxy_org = Pdist2(X, Y)
+            Kxx = torch.exp(-Dxx_org / sigma)
+            Kyy = torch.exp(-Dyy_org / sigma)
+            Kxy = torch.exp(-Dxy_org / sigma)
+        elif epsilonOPT=='Fea_Gau':
+            X_feature = model(X)
+            Y_feature = model(Y)
+            sigma0 = sigma0OPT ** 2
+            Dxx = Pdist2(X_feature, X_feature)
+            Dyy = Pdist2(Y_feature, Y_feature)
+            Dxy = Pdist2(X_feature, Y_feature)
+            Kxx = torch.exp(-Dxx / sigma0)
+            Kyy = torch.exp(-Dyy / sigma0)
+            Kxy = torch.exp(-Dxy / sigma0)
+        else:
+            X_feature = model(X)
+            Y_feature = model(Y)
+            X_resnet = another_model(X)
+            Y_resnet = another_model(Y)
+            sigma = sigmaOPT ** 2
+            sigma0 = sigma0OPT ** 2
+            epsilon = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
+            Dxx = Pdist2(X_feature, X_feature)
+            Dyy = Pdist2(Y_feature, Y_feature)
+            Dxy = Pdist2(X_feature, Y_feature)
+            Dxx_org = Pdist2(X_resnet, X_resnet)
+            Dyy_org = Pdist2(Y_resnet, Y_resnet)
+            Dxy_org = Pdist2(X_resnet, Y_resnet)
+            Kxx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma))
+            Kyy = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
+            Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma))
+            del X, Y, X_feature, Y_feature, X_resnet, Y_resnet, Dxx, Dyy, Dxy, Dxx_org, Dyy_org, Dxy_org
+
+        EKxx = (torch.sum(Kxx) - torch.sum(torch.diag(Kxx)))/ (nx * (nx - 1))
+        EKyy = (torch.sum(Kyy) - torch.sum(torch.diag(Kyy)))/ (nx * (nx - 1))
+        EKxy = torch.sum(Kxy) / (nx * nx)
+        torch.cuda.empty_cache()
+        gc.collect()
+        EKxx = EKxx.cpu().detach().numpy()
+        EKyy = EKyy.cpu().detach().numpy()
+        EKxy = EKxy.cpu().detach().numpy()
+        return EKxx, EKyy, EKxy    
+    else:
+        print("WARNING: Out of Memory, use MonteCarlo...")
+        EKxx = np.zeros(MonteCarlo)
+        EKyy = np.zeros(MonteCarlo)
+        EKxy = np.zeros(MonteCarlo)
+        X_feature = model(X)
+        Y_feature = model(Y)
+        X_resnet = another_model(X)
+        Y_resnet = another_model(Y)
+        sigma = sigmaOPT ** 2
+        sigma0 = sigma0OPT ** 2
+        epsilon = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
+        for i in trange(MonteCarlo):
+            idx = np.random.choice(nx, 10000, replace=False)
+            idy = np.random.choice(nx, 10000, replace=False)
+            Dxx = Pdist2(X_feature[idx], X_feature[idx])
+            Dyy = Pdist2(Y_feature[idy], Y_feature[idy])
+            Dxy = Pdist2(X_feature[idx], Y_feature[idy])
+            Dxx_org = Pdist2(X_resnet[idx], X_resnet[idx])
+            Dyy_org = Pdist2(Y_resnet[idy], Y_resnet[idy])
+            Dxy_org = Pdist2(X_resnet[idx], Y_resnet[idy])
+            Kxx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma))
+            Kyy = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
+            Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma))
+            EKxx[i] = (torch.sum(Kxx) - torch.sum(torch.diag(Kxx)))/ 10000 / (10000 - 1)
+            EKyy[i] = (torch.sum(Kyy) - torch.sum(torch.diag(Kyy)))/ 10000 / (10000 - 1)
+            EKxy[i] = torch.sum(Kxy) / 10000 / 10000
+        EKxx_mean = np.mean(EKxx)
+        EKyy_mean = np.mean(EKyy)
+        EKxy_mean = np.mean(EKxy)
+        EKxx_std = np.std(EKxx)
+        EKyy_std = np.std(EKyy)
+        EKxy_std = np.std(EKxy)
+        print('Error =', np.sqrt(EKxx_std**2 + EKyy_std**2 + EKxy_std**2))
+        del X, Y, X_feature, Y_feature, X_resnet, Y_resnet, Dxx, Dyy, Dxy, Dxx_org, Dyy_org, Dxy_org, Kxx, Kyy, Kxy, EKxx_std, EKyy_std, EKxy_std
+        torch.cuda.empty_cache()
+        gc.collect()
+        return EKxx_mean, EKyy_mean, EKxy_mean
+
+
+
+
+def get_error_from_evaluated_scores(X_scores, Y_scores, 
+                                    m=0, pi=0, gamma=0, 
+                                    soft_or_hard=True, thres=None, verbose = False):
+    X_mean = torch.mean(X_scores)
+    X_std = torch.std(X_scores)
+    Y_mean = torch.mean(Y_scores)
+    Y_std = torch.std(Y_scores)
+
+    mean1 = X_mean
+    std1 = X_std
+    type_1_error = 1-scipy.stats.norm.cdf((gamma-mean1)/std1*np.sqrt(m))
+
+    mean2 = Y_mean*pi + X_mean*(1-pi)
+    std2 = np.sqrt(pi*Y_std**2 + (1-pi)*X_std**2 + pi*(1-pi)*(X_mean-Y_mean)**2)
+    type_2_error = scipy.stats.norm.cdf((gamma-mean2)/std2*np.sqrt(m))
+
+    return type_1_error, type_2_error

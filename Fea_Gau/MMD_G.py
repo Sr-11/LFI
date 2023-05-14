@@ -5,10 +5,14 @@ from matplotlib import pyplot as plt
 import os
 from GPUtil import showUtilization as gpu_usage
 from tqdm import tqdm, trange
-import os
+import os, sys
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="0"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="7"  # specify which GPU(s) to be used
  
+import sys 
+sys.path.append("..") 
+import global_config
+
 # Define the network structure
 H = 300
 out = 100
@@ -64,7 +68,7 @@ def crit(mmd_val, mmd_var, liuetal=True, Sharpe=False):
 
 # save ckeckpoint
 def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0):
-    path = './checkpoint%d/'%n+str(epoch)+'/'
+    path = sys.path[0]+'/checkpoint%d/'%n+str(epoch)+'/'
     try:
         os.makedirs(path) 
     except:
@@ -80,7 +84,7 @@ def save_model(n,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch
 # load checkpoint
 def load_model(n, epoch=0):
     print('loading model from epoch',epoch)
-    path = './checkpoint%d/'%n+str(epoch)+'/'
+    path = sys.path[0]+'/checkpoint%d/'%n+str(epoch)+'/'
     model = DN().cuda()
     model.load_state_dict(torch.load(path+'model.pt'))
     epsilonOPT = torch.load(path+'epsilonOPT.pt')
@@ -99,7 +103,7 @@ def train(n, learning_rate=5e-4,
             momentum = 0.99, weight_decay=0.0,):  
     n_backup = n
     try:
-        os.mkdir('./checkpoint%d'%n_backup)
+        os.mkdir(sys.path[0]+'/checkpoint%d'%n_backup)
     except:
         pass
     torch.manual_seed(seed)
@@ -189,26 +193,27 @@ def train(n, learning_rate=5e-4,
             print('J_validation =', J_validations[t])
         if t%print_every==0:
             plt.plot(J_validations[:t])
-            plt.savefig('./checkpoint%d/J_validations.png'%n_backup)
+            plt.savefig(sys.path[0]+'/checkpoint%d/J_validations.png'%n_backup)
             plt.clf()
             save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=t)
 
         if early_stopping(J_validations, t) and J_validations[t]<-0.1:
             save_model(n_backup,model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,eps,cst,epoch=0)
             plt.plot(J_validations[:t])
-            plt.savefig('./checkpoint%d/J_validations.png'%n_backup)
+            plt.savefig(sys.path[0]+'/checkpoint%d/J_validations.png'%n_backup)
             plt.clf()
             return model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst
             
     return model,another_model,epsilonOPT,sigmaOPT,sigma0OPT,cst
 
 if __name__ == "__main__":
-    dataset = np.load('../HIGGS.npy')
+    dataset = np.load(sys.path[0]+'/../HIGGS.npy')
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5829122, 28)
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28)
 
-    n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
-    for n in [1300000, 1000000, 700000, 400000, 200000, 50000]:
+    n_list = []
+    for n in global_config['train_param_configs']['n_tr_list']:
+    # for n in [10000]:
         for i in range(11):
             n_list.append(n+i)
     

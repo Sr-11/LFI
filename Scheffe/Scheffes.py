@@ -16,6 +16,13 @@ os.environ["CUDA_VISIBLE_DEVICES"]="2"  # specify which GPU(s) to be used
 device = torch.device("cuda:0")
 dtype = torch.float32
 
+import sys
+sys.path.append(sys.path[0]+"/..")
+import global_config
+print_every = global_config.train_param_configs['print_every']
+n_list = global_config.train_param_configs['n_tr_list']
+repeats = global_config.train_param_configs['repeats']
+
 # define network
 H = 300
 class DN(torch.nn.Module):
@@ -61,7 +68,7 @@ def train(model, total_S, total_labels, validation_S, validation_labels,
         if early_stopping(validation_records, epoch):
             break
         if epoch % save_per == 0:
-            path = './checkpoint%d/'%n+str(epoch)+'/'
+            path = sys.path[0]+'/checkpoint%d/'%n+str(epoch)+'/'
             try:
                 os.makedirs(path) 
             except:
@@ -69,25 +76,25 @@ def train(model, total_S, total_labels, validation_S, validation_labels,
             plt.plot(validation_records[:epoch])
             plt.savefig(path+'loss.png')
             plt.clf()
-            torch.save(model.state_dict(), './checkpoint%d/%d/model.pt'%(n,epoch))
+            torch.save(model.state_dict(), sys.path[0]+'/checkpoint%d/%d/model.pt'%(n,epoch))
 
     plt.plot(validation_records[:epoch])
-    plt.savefig('./checkpoint%d/'%n+'loss.png')
+    plt.savefig(sys.path[0]+'/checkpoint%d/'%n+'loss.png')
     plt.clf()
-    torch.save(model.state_dict(), './checkpoint%d/0/model.pt'%n)
+    torch.save(model.state_dict(), sys.path[0]+'/checkpoint%d/0/model.pt'%n)
     return model
 
 if __name__ == "__main__":
     ##### Load Data #####
-    dataset = np.load('../HIGGS.npy')
+    dataset = np.load(sys.path[0]+'/../HIGGS.npy')
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5829122, 28), 0
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28), 1
     del dataset
 
     # train
-    n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
-    repeats = 10
-    for n in [100000]:
+    # n_list = [1300000, 1000000, 700000, 400000, 200000, 50000]
+    # repeats = 10
+    for n in n_list:
         # prepare training set
         X, Y = dataset_P[:n], dataset_Q[:n]
         batch_size = 1024
@@ -112,23 +119,23 @@ if __name__ == "__main__":
             model = train(model, total_S, total_labels, validation_S, validation_labels,
                         batch_size=batch_size, lr=2e-3, epochs=301, load_epoch=0, save_per=10, momentum=0.99,
                         n=n_train+i)
-            n_eval = 10000
-            X_eval = dataset_P[n_train:n_train+n_eval]
-            Y_eval = dataset_Q[n_train:n_train+n_eval]
-            X_eval = MatConvert(X_eval, device, dtype)
-            Y_eval = MatConvert(Y_eval, device, dtype)
+        #     n_eval = 10000
+        #     X_eval = dataset_P[n_train:n_train+n_eval]
+        #     Y_eval = dataset_Q[n_train:n_train+n_eval]
+        #     X_eval = MatConvert(X_eval, device, dtype)
+        #     Y_eval = MatConvert(Y_eval, device, dtype)
 
-            n_test = 10000
-            X_test = dataset_P[n_train+n_eval:n_train+n_eval+n_test]
-            Y_test = dataset_Q[n_train+n_eval:n_train+n_eval+n_test]
-            X_test = MatConvert(X_test, device, dtype)
-            Y_test = MatConvert(Y_test, device, dtype)
+        #     n_test = 10000
+        #     X_test = dataset_P[n_train+n_eval:n_train+n_eval+n_test]
+        #     Y_test = dataset_Q[n_train+n_eval:n_train+n_eval+n_test]
+        #     X_test = MatConvert(X_test, device, dtype)
+        #     Y_test = MatConvert(Y_test, device, dtype)
 
-            pval = get_pval_at_once(X_eval, Y_eval, X_eval, Y_eval, X_test, Y_test,
-                                model, None, 'Scheffe', None, None, None,
-                                norm_or_binom = False)
-            P_values[i] = pval
-            print('P-value: %.4f'%pval)
-        np.save('./P_values%d.npy'%n_train, P_values)
+        #     pval = get_pval_at_once(X_eval, Y_eval, X_eval, Y_eval, X_test, Y_test,
+        #                         model, None, 'Scheffe', None, None, None,
+        #                         norm_or_binom = False)
+        #     P_values[i] = pval
+        #     print('P-value: %.4f'%pval)
+        # np.save(sys.path[0]+'/P_values%d.npy'%n_train, P_values)
 
         
