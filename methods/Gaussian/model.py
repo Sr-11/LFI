@@ -4,65 +4,29 @@ import torch
 import numpy as np
 
 
-class DN(torch.nn.Module):
-    def __init__(self, H=300, out=100):
-        super(DN, self).__init__()
-        self.restored = False
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(28, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, out, bias=True),
-        )
+class Const(torch.nn.Module):
+    def __init__(self):
+        super(Const, self).__init__()
     def forward(self, input):
-        output = self.model(input)
-        return output
-
-class another_DN(torch.nn.Module):
-    def __init__(self, H=300, out=28):
-        super(another_DN, self).__init__()
-        self.restored = False
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(28, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, H, bias=True),
-            torch.nn.ReLU(),
-            torch.nn.Linear(H, out, bias=True),
-        )
-    def forward(self, input):
-        output = self.model(input) + input
-        return output
+        return input
 
 class Model(torch.nn.Module):
     def __init__(self, median_heuristic=False, X_heu=None, Y_heu=None):
         super(Model, self).__init__()
-        self.model = DN().to(device)
-        self.another_model = another_DN().to(device)
-        self.epsilonOPT = MatConvert(np.zeros(1), device, dtype); self.epsilonOPT.requires_grad = True
+        self.model = Const().to(device)
+        self.another_model = Const().to(device)
+        self.epsilonOPT = None; #self.epsilonOPT.requires_grad = False
         self.sigmaOPT = MatConvert(np.sqrt(np.random.rand(1)), device, dtype); self.sigmaOPT.requires_grad = True
-        self.sigma0OPT = MatConvert(np.sqrt(np.random.rand(1)), device, dtype); self.sigma0OPT.requires_grad = True
+        self.sigma0OPT = MatConvert(np.sqrt(np.random.rand(1)), device, dtype); self.sigma0OPT.requires_grad = False
         self.cst = MatConvert(np.ones((1,)), device, dtype); self.cst.requires_grad = False
         self.L = 1
-        self.params = list(self.model.parameters())+list(self.another_model.parameters())+[self.epsilonOPT]+[self.sigmaOPT]+[self.sigma0OPT]+[self.cst]
+        self.params = [self.sigmaOPT]
         if median_heuristic:
             self.sigmaOPT = median_heuristic(X_heu, Y_heu)
             
     def compute_MMD(self, XY_tr, require_grad=True, is_var_computed=True):
         batch_size = XY_tr.shape[0]//2
-        ep = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
+        ep = 1
         sigma = self.sigmaOPT ** 2; sigma0 = self.sigma0OPT ** 2
         modelu_output = self.model(XY_tr) 
         another_output =  self.another_model(XY_tr)
@@ -78,23 +42,10 @@ class Model(torch.nn.Module):
         torch.set_grad_enabled(prev)
         return -STAT_u
     
-    def compute_loss_sig(self, XY_tr, require_grad=True, **kwargs):
-        prev = torch.is_grad_enabled()
-        torch.set_grad_enabled(require_grad)
-        batch_size = XY_tr.shape[0]//2
-        mmd2_val, mmd_var, K = self.compute_MMD(XY_tr, require_grad=require_grad)
-        # Hij = k(Xi,Xj)-k(Xi,Yj), K=(Kx, Ky, Kxy)
-        H = K[2] - K[0]
-        V1 = torch.dot(H.sum(1),H.sum(1)) / batch_size**3
-        V2 = (H).sum() / batch_size**2
-        var_phi_X = (V1 - V2**2)
-        torch.set_grad_enabled(prev)
-        return - mmd2_val / torch.sqrt(var_phi_X+10**(-8)) 
-    
     def compute_gram(self, X, Y, require_grad=False):
         prev = torch.is_grad_enabled()
         torch.set_grad_enabled(require_grad)
-        ep = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
+        ep = 1
         sigma = self.sigmaOPT ** 2; sigma0 = self.sigma0OPT ** 2
         Dxy = Pdist2(self.model(X), self.model(Y)); Dxy_org = Pdist2(self.another_model(X), self.another_model(Y))
         Kxy = self.cst*( (1-ep)*torch.exp(-(Dxy/sigma0)-(Dxy_org/sigma))**self.L + ep*torch.exp(-Dxy_org/sigma) )

@@ -18,6 +18,7 @@ expr_configs = {
     'checkpoints_path': current_dir+'/checkpoints',
     'pval_mat_path': current_dir+'/pval_data',
     'plot_path': current_dir+'/plots',
+    'error_path': current_dir+'/error_data',
 }
 
 resource_configs = {
@@ -30,7 +31,7 @@ train_param_configs = {
     'repeats': global_config.train_param_configs['repeats'],
     'batch_size': 1024,
     'N_epoch': 501,
-    'validation_size': 2048,
+    'validation_size': 10000,
     'learning_rate': 0.01,
     'momentum': 0.9,
     'save_every': 5,
@@ -46,7 +47,7 @@ test_param_configs = {
     'n_te': 10000,
     'test_hard': True,
     'test_soft': True,
-    'force_thres': 0.5,
+    'force_thres': None,
 }
 
 

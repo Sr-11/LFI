@@ -27,16 +27,27 @@ def Pdist2(x, y):
         y_norm = x_norm.view(1, -1)
     Pdist = x_norm + y_norm - 2.0 * torch.mm(x, torch.transpose(y, 0, 1))
     Pdist[Pdist<0]=0
-    # del x_norm, y_norm; gc.collect(); torch.cuda.empty_cache()
+    del x_norm, y_norm
     return Pdist
+
+def Pdist2_(D, x, y):
+    x_norm = (x ** 2).sum(1).view(-1, 1)
+    y_norm = (y ** 2).sum(1).view(1, -1)
+    torch.mm(x, torch.transpose(y, 0, 1), out=D)
+    D *= -2.0
+    D += x_norm
+    D += y_norm
+    D[D<0]=0
+    del x_norm, y_norm
+    return D
 
 def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, is_unbiased = True, use_2nd = False):
     """compute value of MMD and std of MMD using kernel matrix."""
     """Kx: (n_x,n_x); Kx: (n_y,n_y); Kxy: (n_x,n_y)"""
     """Notice: their estimator is also biased, including 2nd order term (but the value is incorrect)"""
-    Kxxy = torch.cat((Kx,Kxy),1)
-    Kyxy = torch.cat((Kxy.transpose(0,1),Ky),1)
-    Kxyxy = torch.cat((Kxxy,Kyxy),0)
+    # Kxxy = torch.cat((Kx,Kxy),1)
+    # Kyxy = torch.cat((Kxy.transpose(0,1),Ky),1)
+    # Kxyxy = torch.cat((Kxxy,Kyxy),0)
     nx = Kx.shape[0]; ny = Ky.shape[0]; 
     if is_unbiased:
         xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
@@ -57,26 +68,26 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, is_unbias
             xy = torch.div(torch.sum(Kxy), (nx * ny))
         mmd2 = xx - 2 * xy + yy
     if not is_var_computed:
-        return mmd2, None, (Kx, Ky, Kxy)
+        return mmd2, None
     # H[i,j]=k(x_i,x_j)+k(y_i,y_j)-k(x_i,y_j)-k(y_i,x_j)
     H = Kx+Ky-Kxy-Kxy.transpose(0,1)
-    V1 = torch.dot(H.sum(1)/ny,H.sum(1)/ny) / ny
-    V2 = (H).sum() / (nx) / nx
+    S = H.sum(1)
+    V1 = torch.dot(S,S) / ny**3
+    V2 = S.sum() / nx**2
     varEst = 4*(V1 - V2**2)
     if varEst == 0.0:
        print('error!! var=0')
     if use_2nd:
         V3 = 0
-    return mmd2, varEst, (Kx, Ky, Kxy)
+    return mmd2, varEst
 
-def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
+def MMDu(Fea, len_s, Fea_org, sigma, sigma0, epsilon, cst,
          is_smooth=True, is_var_computed=True, use_1sample_U=True, L=1, kwarg=None):
     """compute value of deep-kernel MMD and std of deep-kernel MMD using merged data."""
     X = Fea[0:len_s, :] # fetch the sample 1 (features of deep networks)
     Y = Fea[len_s:, :] # fetch the sample 2 (features of deep networks)
     X_org = Fea_org[0:len_s, :] # fetch the original sample 1
     Y_org = Fea_org[len_s:, :] # fetch the original sample 2
-    L = 1 # generalized Gaussian (if L>1)
     Dxx = Pdist2(X, X)
     Dyy = Pdist2(Y, Y)
     Dxy = Pdist2(X, Y)
@@ -84,13 +95,14 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0=0.1, epsilon=10 ** (-10), cst = 1.0,
     Dyy_org = Pdist2(Y_org, Y_org)
     Dxy_org = Pdist2(X_org, Y_org)
     if is_smooth:
-        Kx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma))
-        Ky = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
-        Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma))
+        Kx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0)) + epsilon) * torch.exp(-Dxx_org / sigma)
+        Ky = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0)) + epsilon) * torch.exp(-Dyy_org / sigma)
+        Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0)) + epsilon) * torch.exp(-Dxy_org / sigma)
     else:
         Kx = cst*torch.exp(-Dxx / sigma0)
         Ky = cst*torch.exp(-Dyy / sigma0)
         Kxy = cst*torch.exp(-Dxy / sigma0)
+    del Dxx, Dyy, Dxy, Dxx_org, Dyy_org, Dxy_org; gc.collect(); torch.cuda.empty_cache()
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
 
@@ -133,16 +145,17 @@ def get_thres_from_evaluated_scores(X, Y):
     i = np.argmax(p_list)
     return sorted[i], x[i], y[i]
 
-def get_error_from_evaluated_scores(X_score, Y_score, pi, gamma=None, verbose = False):
-    m = X_score.shape[0]
+def get_error_from_evaluated_scores(X_score, Y_score, pi, gamma, m, verbose = False):
     P_mean = torch.mean(X_score)
     P_std = torch.std(X_score)
     Q_mean = torch.mean(Y_score)
     Q_std = torch.std(Y_score)
     Mix_mean = Q_mean*pi + P_mean*(1-pi)
-    Mix_std = np.sqrt( pi*Q_std**2 + (1-pi)*P_std**2 + pi*(1-pi)*(P_mean-Q_mean)**2 )
-    type_1_error = scipy.stats.norm.cdf( - np.sqrt(m)*(gamma-P_mean)/P_std)
-    type_2_error = scipy.stats.norm.cdf( - np.sqrt(m)*(Mix_mean-gamma)/Mix_std)
+    Mix_std = torch.sqrt( pi*Q_std**2 + (1-pi)*P_std**2 + pi*(1-pi)*(P_mean-Q_mean)**2 )
+    t1 = (gamma-P_mean)/P_std; t1 = t1.cpu().numpy()
+    t2 = (Mix_mean-gamma)/Q_std; t2 = t2.cpu().numpy()
+    type_1_error = scipy.stats.norm.cdf( -np.sqrt(m)* t1)
+    type_2_error = scipy.stats.norm.cdf( -np.sqrt(m)* t2)
     return type_1_error, type_2_error
 
 def compute_gamma(X, Y, model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst, 
@@ -256,11 +269,12 @@ def median_heuristic(X,Y,L=1):
     n2, d2 = Y.shape
     assert d1 == d2, 'Dimensions of input vectors must match'
     Dxy = Pdist2(X, Y)
+    print(Dxy.shape)
     mdist2 = torch.median(Dxy)
     sigma = torch.sqrt(mdist2)
     return sigma
 
-def plot_hist(P_scores, Q_scores, path, title, verbose=False):
+def plot_hist(P_scores, Q_scores, path, title, verbose=False, pi=None, gamma=None):
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
     # if torch, to numpy
@@ -269,8 +283,8 @@ def plot_hist(P_scores, Q_scores, path, title, verbose=False):
     if type(Q_scores) == torch.Tensor:
         Q_scores = Q_scores.cpu().numpy()
     fig = plt.figure()
-    plt.hist(P_scores, bins=50, label='$\mathrm{wit}_{Q,P}(X)$', alpha=0.5, color='r')
-    plt.hist(Q_scores, bins=50, label='$\mathrm{wit}_{Q,P}(Y)$', alpha=0.5, color='b')
+    plt.hist(P_scores, bins=100, label='$\mathrm{wit}_{Q,P}(X)$', alpha=0.5, color='r')
+    plt.hist(Q_scores, bins=100, label='$\mathrm{wit}_{Q,P}(Y)$', alpha=0.5, color='b')
     P_mean_score = np.mean(P_scores)
     Q_mean_score = np.mean(Q_scores)
     plt.axvline(P_mean_score, color='r', linestyle='--', label='$\mathbb{E}\mathrm{wit}_{Q,P}(X)$')
@@ -281,16 +295,28 @@ def plot_hist(P_scores, Q_scores, path, title, verbose=False):
     plt.axvline(Q_mean_score+Q_std_score, color='b', linestyle=':')
     plt.axvline(P_mean_score-P_std_score, color='r', linestyle=':')
     plt.axvline(Q_mean_score-Q_std_score, color='b', linestyle=':')
-    plt.legend()
     plt.title(title)
     plt.xlabel('witness')
     plt.ylabel('frequency')
+    if gamma is not None:
+        plt.axvline(gamma.cpu().numpy(), color='g', label='threshold $\gamma$')
+    if pi is not None:
+        plt.axvline(pi*Q_mean_score+(1-pi)*P_mean_score, color='y', label='$\pi$ mixed mean')
+    plt.legend()
     plt.savefig(path)
     plt.clf()
     plt.close()
+    plt.close('all')
+    gc.collect()
     if verbose:
         print('saved hist.png...')
     return fig
+
+
+
+
+
+
 
 
 class Classifier(torch.nn.Module):

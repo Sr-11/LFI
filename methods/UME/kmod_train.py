@@ -7,10 +7,10 @@ from tqdm import tqdm, trange
 # import autograd.numpy as np
 import pickle
 import sys
-import UME_config as UME_config
+import LFI.methods.UME.config as config
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]= UME_config.train_param_configs['gpu_id'] # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]= config.train_param_configs['gpu_id'] # specify which GPU(s) to be used
  
 torch.backends.cudnn.deterministic = True
 dtype = torch.float
@@ -174,26 +174,26 @@ def train(n_tr, J=None, # size of X_tr, Y_tr and W=V
 
 
 if __name__ == "__main__":
-    dataset = np.load(UME_config.resource_configs['Higgs_path'])
+    dataset = np.load(config.resource_configs['Higgs_path'])
     print('signal : background =',np.sum(dataset[:,0]),':',dataset.shape[0]-np.sum(dataset[:,0]))
     print('signal :',np.sum(dataset[:,0])/dataset.shape[0]*100,'%')
     # split into signal and background
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5170877, 28)
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5829122, 28) 
 
-    n_org_list = UME_config.train_param_configs['n_tr_list']
-    repeats = UME_config.train_param_configs['repeats']
+    n_org_list = config.train_param_configs['n_tr_list']
+    repeats = config.train_param_configs['repeats']
     n_tr_list = []
     for n in n_org_list:
         for i in range(repeats):
             n_tr_list.append(n+i)
     
-    J_tr = UME_config.train_param_configs['J_tr']
-    batch_size = UME_config.train_param_configs['batch_size']
-    N_epoch = UME_config.train_param_configs['N_epoch']
-    learning_rate = UME_config.train_param_configs['learning_rate']
-    momentum = UME_config.train_param_configs['momentum']
-    checkpoint_path = UME_config.expr_configs['checkpoints_path']
+    J_tr = config.train_param_configs['J_tr']
+    batch_size = config.train_param_configs['batch_size']
+    N_epoch = config.train_param_configs['N_epoch']
+    learning_rate = config.train_param_configs['learning_rate']
+    momentum = config.train_param_configs['momentum']
+    checkpoint_path = config.expr_configs['checkpoints_path']
 
     for n_tr in n_tr_list:
         print('------ n =', n_tr, '------')

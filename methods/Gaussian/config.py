@@ -25,7 +25,7 @@ resource_configs = {
 }
 
 train_param_configs = {
-    'gpu_id': '7',
+    'gpu_id': '1',
     'n_tr_list': global_config.train_param_configs['n_tr_list'],
     'repeats': global_config.train_param_configs['repeats'],
     'batch_size': 1024,
@@ -38,7 +38,7 @@ train_param_configs = {
 }
 
 test_param_configs = {
-    'gpu_id': '6',
+    'gpu_id': '2',
     'n_tr_list': global_config.test_param_configs['n_tr_list'],
     'num_models': global_config.test_param_configs['num_models'], # same as train.repeats
     'num_repeats': global_config.test_param_configs['num_repeats'],
@@ -46,7 +46,8 @@ test_param_configs = {
     'n_te': 10000,
     'test_hard': True,
     'test_soft': True,
-    'force_thres': 0.5,
+    'force_thres': None,
+
 }
 
 

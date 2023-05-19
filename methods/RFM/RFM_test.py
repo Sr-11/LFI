@@ -12,7 +12,7 @@ import pandas as pd
 import gc
 from IPython.display import clear_output
 import pickle, hickle
-import RFM_config as RFM_config
+import LFI.methods.RFM.config as config
 from RFM_utils import * 
 import RFM_kernels as RFM_kernels
 import rfm
@@ -20,7 +20,7 @@ from torch.linalg import solve
 
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]= RFM_config.test_param_configs['gpu_id'] # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]= config.test_param_configs['gpu_id'] # specify which GPU(s) to be used
 device = torch.device("cuda:0")
 dtype = torch.float32
 torch.manual_seed(42)
@@ -148,11 +148,11 @@ def simulate_error(n_tr, n_ev, n_te,
 
 
 def package_pval_data(pval_path):
-    ns = RFM_config.test_param_configs['n_tr_list']
-    pval_mid_path = RFM_config.expr_configs['pval_mat_path']
+    ns = config.test_param_configs['n_tr_list']
+    pval_mid_path = config.expr_configs['pval_mat_path']
 
-    num_models = RFM_config.test_param_configs['num_models']
-    num_repeats = RFM_config.test_param_configs['num_repeats']
+    num_models = config.test_param_configs['num_models']
+    num_repeats = config.test_param_configs['num_repeats']
 
     pval_dict = {}
     pval_dict['RFM'] = {}
@@ -177,24 +177,24 @@ def package_pval_data(pval_path):
         pickle.dump(pval_dict, f, pickle.HIGHEST_PROTOCOL)
 
 if __name__ == "__main__":
-    dataset = np.load(RFM_config.resource_configs['Higgs_path'])
+    dataset = np.load(config.resource_configs['Higgs_path'])
     dataset_P = dataset[dataset[:,0]==0][:, 1:] # background (5829122, 28)
     dataset_Q = dataset[dataset[:,0]==1][:, 1:] # signal     (5170877, 28)
     dataset_P = torch.from_numpy(dataset_P).to(dtype=dtype, device=device)
     dataset_Q = torch.from_numpy(dataset_Q).to(dtype=dtype, device=device)
 
-    ns = RFM_config.test_param_configs['n_tr_list']
-    num_models = RFM_config.test_param_configs['num_models']
-    num_repeats = RFM_config.test_param_configs['num_repeats']
+    ns = config.test_param_configs['n_tr_list']
+    num_models = config.test_param_configs['num_models']
+    num_repeats = config.test_param_configs['num_repeats']
 
-    n_ev = RFM_config.test_param_configs['n_ev']
-    n_te = RFM_config.test_param_configs['n_te']
+    n_ev = config.test_param_configs['n_ev']
+    n_te = config.test_param_configs['n_te']
 
-    pval_path = RFM_config.expr_configs['pval_mat_path']
-    chekpoints_path = RFM_config.expr_configs['checkpoints_path']
+    pval_path = config.expr_configs['pval_mat_path']
+    chekpoints_path = config.expr_configs['checkpoints_path']
 
-    test_soft = RFM_config.test_param_configs['test_soft']
-    test_hard = RFM_config.test_param_configs['test_hard']
+    test_soft = config.test_param_configs['test_soft']
+    test_hard = config.test_param_configs['test_hard']
 
     for n_tr in ns:
         print("------------------- n_tr = %d -------------------"%n_tr)
