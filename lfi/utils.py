@@ -4,13 +4,23 @@ import torch.utils.data
 from matplotlib import pyplot as plt
 import pandas as pd
 import pyroc
-is_cuda = True
 import scipy
-import gc
+import gc, os
 from tqdm import trange
-import os
-device = torch.device("cuda:0")
+
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 dtype = torch.float32
+torch.backends.cudnn.deterministic = True
+np.random.seed(42)
+torch.manual_seed(42)
+
+# initialize the process group
+def setup(rank, world_size):
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+    torch.distributed.init_process_group("gloo", rank=rank, world_size=world_size)
+def cleanup():
+    torch.distributed.destroy_process_group()
 
 def MatConvert(x, device, dtype):
     """convert the numpy to a torch tensor."""
@@ -27,27 +37,35 @@ def Pdist2(x, y):
         y_norm = x_norm.view(1, -1)
     Pdist = x_norm + y_norm - 2.0 * torch.mm(x, torch.transpose(y, 0, 1))
     Pdist[Pdist<0]=0
-    del x_norm, y_norm
     return Pdist
 
 def Pdist2_(D, x, y):
-    x_norm = (x ** 2).sum(1).view(-1, 1)
-    y_norm = (y ** 2).sum(1).view(1, -1)
-    torch.mm(x, torch.transpose(y, 0, 1), out=D)
-    D *= -2.0
-    D += x_norm
-    D += y_norm
-    D[D<0]=0
-    del x_norm, y_norm
-    return D
+    """in-place version of Pdist2."""
+    if D.shape == (x.shape[0], y.shape[0]):
+        x_norm = (x ** 2).sum(1).view(-1, 1)
+        y_norm = (y ** 2).sum(1).view(1, -1)
+        torch.mm(x, torch.transpose(y, 0, 1), out=D)
+        D *= -2.0; D += x_norm; D += y_norm
+        D[D<0]=0
+        return D
+    else:
+        D = Pdist2(x, y)
+        return D
+
+def median(X,Y,L=1):
+    '''Implementation of the median heuristic. See Gretton 2012'''
+    n1, d1 = X.shape
+    n2, d2 = Y.shape
+    assert d1 == d2, 'Dimensions of input vectors must match'
+    Dxy = Pdist2(X, Y)
+    mdist2 = torch.median(Dxy)
+    sigma = torch.sqrt(mdist2)
+    return sigma
 
 def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True, is_unbiased = True, use_2nd = False):
     """compute value of MMD and std of MMD using kernel matrix."""
     """Kx: (n_x,n_x); Kx: (n_y,n_y); Kxy: (n_x,n_y)"""
     """Notice: their estimator is also biased, including 2nd order term (but the value is incorrect)"""
-    # Kxxy = torch.cat((Kx,Kxy),1)
-    # Kyxy = torch.cat((Kxy.transpose(0,1),Ky),1)
-    # Kxyxy = torch.cat((Kxxy,Kyxy),0)
     nx = Kx.shape[0]; ny = Ky.shape[0]; 
     if is_unbiased:
         xx = torch.div((torch.sum(Kx) - torch.sum(torch.diag(Kx))), (nx * (nx - 1)))
@@ -105,17 +123,16 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0, epsilon, cst,
     del Dxx, Dyy, Dxy, Dxx_org, Dyy_org, Dxy_org; gc.collect(); torch.cuda.empty_cache()
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
-
-
-def get_pval_from_evaluated_scores(X_score, Y_score, thres=None, verbose = False): # thres过的
+def get_pval_from_evaluated_scores(X_score, Y_score, pi=1/11, m=1100, thres=None, verbose = False): 
+    """compute p-value from evaluated witness scores."""
     if thres == None:
         X_mean = torch.mean(X_score, dtype=dtype)
         X_std = torch.std(X_score)
         Y_mean = torch.mean(Y_score, dtype=dtype)
         Y_std = torch.std(Y_score)
         # 直接算平均的P的分数和方差，平均的Q的分数，然后加权
-        Z_score = (10*X_mean + Y_mean)/11
-        p_value = (Z_score-X_mean)/X_std*np.sqrt(1100)
+        Z_score = (1-pi)*X_mean + pi*Y_mean
+        p_value = (Z_score-X_mean)/X_std*np.sqrt(m)
         if verbose:
             print('#datapoints =', len(X_score), ', make sure #>10000 for 2 sig digits')
             print('X_mean =', X_mean)
@@ -127,25 +144,56 @@ def get_pval_from_evaluated_scores(X_score, Y_score, thres=None, verbose = False
             print('----------------------------------')
         return p_value
     else:
-        a = torch.mean(Y_score>thres, dtype=dtype).item() # sig->sig
-        b = torch.mean(X_score<thres, dtype=dtype).item() # bkg->bkg
-        E = 100*a + 1000*(1-b)
-        p_val = scipy.stats.binom.cdf(E, 1100, 1-b)
+        signal_efficiency = torch.mean(Y_score>thres, dtype=dtype).item() # sig->sig
+        background_rejection = torch.mean(X_score<thres, dtype=dtype).item() # bkg->bkg
+        expected_sum = m*pi*signal_efficiency + m*(1-pi)*(1-background_rejection)
+        p_val = scipy.stats.binom.cdf(expected_sum, m, 1-background_rejection)
         p_val = scipy.stats.norm.ppf(p_val)
         return p_val 
 
-def get_thres_from_evaluated_scores(X, Y):
-    auc, x, y = get_auc_from_evaluated_scores(X,Y)
-    E = 100*x+1000*(1-y)
-    p_val = scipy.stats.binom.cdf(E, 1100, 1-y)
-    p_list = scipy.stats.norm.ppf(p_val)
-    p_list[p_list==np.inf] = 0
+def get_auc_from_evaluated_scores(X_scores, Y_scores, plot_ROC_path=None, pyroc=False):
+    """compute ROC from evaluated witness scores."""
+    if pyroc:
+        M = X_scores.shape[0]
+        outcome = np.concatenate((np.zeros(M), np.ones(M)))
+        df = pd.DataFrame(np.concatenate([X_scores,Y_scores]) , columns=['Higgs_Default'])
+        roc = pyroc.ROC(outcome, df)
+        auc = roc.auc
+        pred = roc.preds['Higgs_Default'] # 长度是2M
+        fpr, tpr = roc._roc(pred) # False positive rate, True positive rate
+        signal_to_signal_rate = tpr # 1认成1
+        background_to_background_rate = 1 - fpr # 0认成0 = 1 - 0认成1
+        if plot_ROC_path != None:
+            fig, ax = roc.plot()
+            fig.savefig(plot_ROC_path)
+            plt.close(fig)
+    else:
+        sorted = np.sort(np.unique(np.concatenate((X_scores,Y_scores), axis=0)), axis=None)
+        signal_to_signal_rate = np.zeros(len(sorted))
+        background_to_background_rate = np.zeros(len(sorted))
+        for i in range(len(sorted)):
+            signal_to_signal_rate[i] = np.mean(Y_scores>sorted[i])
+            background_to_background_rate[i] = np.mean(X_scores<sorted[i])
+        auc = None
+    return auc, signal_to_signal_rate, background_to_background_rate
+def get_thres_from_evaluated_scores(X_scores, Y_scores, pi=1/11, m=1100, plot_ROC_path=None):
+    """compute t_opt from evaluated witness scores."""
+    if type(X_scores) == torch.Tensor:
+        X_scores = X_scores.cpu().numpy()
+    if type(Y_scores) == torch.Tensor:
+        Y_scores = Y_scores.cpu().numpy()
+    auc, x, y = get_auc_from_evaluated_scores(X_scores,Y_scores,plot_ROC_path)
+    expected_sum = m*pi*x + m*(1-pi)*(1-y)
+    p_val_list = scipy.stats.norm.ppf(scipy.stats.binom.cdf(expected_sum, m, 1-y))
+    p_val_list[p_val_list==np.inf] = 0
     #p_list = p_list[p_list.shape[0]//10 : p_list.shape[0]//10*9]
-    sorted = np.sort(np.unique(torch.cat((X,Y), dim=0)), axis=None)
-    i = np.argmax(p_list)
-    return sorted[i], x[i], y[i]
+    sorted = np.sort(np.unique(np.concatenate((X_scores,Y_scores), axis=0)), axis=None)
+    i = np.argmax(p_val_list)
+    return sorted[i], sorted, p_val_list
+
 
 def get_error_from_evaluated_scores(X_score, Y_score, pi, gamma, m, verbose = False):
+    """compute type 1 and type 2 error from evaluated witness scores."""
     P_mean = torch.mean(X_score)
     P_std = torch.std(X_score)
     Q_mean = torch.mean(Y_score)
@@ -158,123 +206,10 @@ def get_error_from_evaluated_scores(X_score, Y_score, pi, gamma, m, verbose = Fa
     type_2_error = scipy.stats.norm.cdf( -np.sqrt(m)* t2)
     return type_1_error, type_2_error
 
-def compute_gamma(X, Y, model, another_model, epsilonOPT, sigmaOPT, sigma0OPT, cst, 
-                    dtype = torch.float, device = torch.device("cuda:0"),
-                    MonteCarlo = 10000): 
-    nx = X.shape[0]
-    X = MatConvert(X, device, dtype)
-    Y = MatConvert(Y, device, dtype)
-    L = 1 # generalized Gaussian (if L>1)
-    if nx<=10000:
-        if epsilonOPT=='Scheffe':
-            return None, None, None
-        elif epsilonOPT=='Gaussian':
-            sigma = sigmaOPT ** 2
-            Dxx_org = Pdist2(X, X)
-            Dyy_org = Pdist2(Y, Y)
-            Dxy_org = Pdist2(X, Y)
-            Kxx = torch.exp(-Dxx_org / sigma)
-            Kyy = torch.exp(-Dyy_org / sigma)
-            Kxy = torch.exp(-Dxy_org / sigma)
-        elif epsilonOPT=='Fea_Gau':
-            X_feature = model(X)
-            Y_feature = model(Y)
-            sigma0 = sigma0OPT ** 2
-            Dxx = Pdist2(X_feature, X_feature)
-            Dyy = Pdist2(Y_feature, Y_feature)
-            Dxy = Pdist2(X_feature, Y_feature)
-            Kxx = torch.exp(-Dxx / sigma0)
-            Kyy = torch.exp(-Dyy / sigma0)
-            Kxy = torch.exp(-Dxy / sigma0)
-        else:
-            X_feature = model(X)
-            Y_feature = model(Y)
-            X_resnet = another_model(X)
-            Y_resnet = another_model(Y)
-            sigma = sigmaOPT ** 2
-            sigma0 = sigma0OPT ** 2
-            epsilon = torch.exp(epsilonOPT)/(1+torch.exp(epsilonOPT))
-            Dxx = Pdist2(X_feature, X_feature)
-            Dyy = Pdist2(Y_feature, Y_feature)
-            Dxy = Pdist2(X_feature, Y_feature)
-            Dxx_org = Pdist2(X_resnet, X_resnet)
-            Dyy_org = Pdist2(Y_resnet, Y_resnet)
-            Dxy_org = Pdist2(X_resnet, Y_resnet)
-            Kxx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma))
-            Kyy = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
-            Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma))
-            del X, Y, X_feature, Y_feature, X_resnet, Y_resnet, Dxx, Dyy, Dxy, Dxx_org, Dyy_org, Dxy_org
-
-        EKxx = (torch.sum(Kxx) - torch.sum(torch.diag(Kxx)))/ (nx * (nx - 1))
-        EKyy = (torch.sum(Kyy) - torch.sum(torch.diag(Kyy)))/ (nx * (nx - 1))
-        EKxy = torch.sum(Kxy) / (nx * nx)
-        torch.cuda.empty_cache()
-        gc.collect()
-        EKxx = EKxx.cpu().detach().numpy()
-        EKyy = EKyy.cpu().detach().numpy()
-        EKxy = EKxy.cpu().detach().numpy()
-        return EKxx, EKyy, EKxy    
-    else:
-        print("WARNING: Out of Memory, use MonteCarlo...")
-        EKxx = np.zeros(MonteCarlo)
-        EKyy = np.zeros(MonteCarlo)
-        EKxy = np.zeros(MonteCarlo)
-        for i in trange(MonteCarlo):
-            idx = np.random.choice(nx, 10000, replace=False)
-            idy = np.random.choice(nx, 10000, replace=False)
-            Dxx = Pdist2(X_feature[idx], X_feature[idx])
-            Dyy = Pdist2(Y_feature[idy], Y_feature[idy])
-            Dxy = Pdist2(X_feature[idx], Y_feature[idy])
-            Dxx_org = Pdist2(X_resnet[idx], X_resnet[idx])
-            Dyy_org = Pdist2(Y_resnet[idy], Y_resnet[idy])
-            Dxy_org = Pdist2(X_resnet[idx], Y_resnet[idy])
-            Kxx = cst*((1-epsilon) * torch.exp(-(Dxx / sigma0) - (Dxx_org / sigma))**L + epsilon * torch.exp(-Dxx_org / sigma))
-            Kyy = cst*((1-epsilon) * torch.exp(-(Dyy / sigma0) - (Dyy_org / sigma))**L + epsilon * torch.exp(-Dyy_org / sigma))
-            Kxy = cst*((1-epsilon) * torch.exp(-(Dxy / sigma0) - (Dxy_org / sigma))**L + epsilon * torch.exp(-Dxy_org / sigma))
-            EKxx[i] = (torch.sum(Kxx) - torch.sum(torch.diag(Kxx)))/ 10000 / (10000 - 1)
-            EKyy[i] = (torch.sum(Kyy) - torch.sum(torch.diag(Kyy)))/ 10000 / (10000 - 1)
-            EKxy[i] = torch.sum(Kxy) / 10000 / 10000
-        EKxx_mean = np.mean(EKxx)
-        EKyy_mean = np.mean(EKyy)
-        EKxy_mean = np.mean(EKxy)
-        EKxx_std = np.std(EKxx)
-        EKyy_std = np.std(EKyy)
-        EKxy_std = np.std(EKxy)
-        print('Error =', np.sqrt(EKxx_std**2 + EKyy_std**2 + EKxy_std**2))
-        del X, Y, X_feature, Y_feature, X_resnet, Y_resnet, Dxx, Dyy, Dxy, Dxx_org, Dyy_org, Dxy_org, Kxx, Kyy, Kxy, EKxx_std, EKyy_std, EKxy_std
-        torch.cuda.empty_cache()
-        gc.collect()
-        return EKxx_mean, EKyy_mean, EKxy_mean
-
-
-def get_auc_from_evaluated_scores(X, Y):
-    M = X.shape[0]
-    outcome = np.concatenate((np.zeros(M), np.ones(M)))
-    df = pd.DataFrame(np.concatenate([X,Y]) , columns=['Higgs_Default'])
-    roc = pyroc.ROC(outcome, df)
-    auc = roc.auc
-    pred = roc.preds['Higgs_Default'] # 长度是2M
-    #print(pred.shape)
-    fpr, tpr = roc._roc(pred) # False positive rate, True positive rate
-    #print(fpr.shape, tpr.shape)
-    signal_to_signal_rate = tpr # 1认成1
-    background_to_background_rate = 1 - fpr # 0认成0 = 1 - 0认成1
-    return auc, signal_to_signal_rate, background_to_background_rate
-
-
-def median_heuristic(X,Y,L=1):
-    '''Implementation of the median heuristic. See Gretton 2012
-    '''
-    n1, d1 = X.shape
-    n2, d2 = Y.shape
-    assert d1 == d2, 'Dimensions of input vectors must match'
-    Dxy = Pdist2(X, Y)
-    print(Dxy.shape)
-    mdist2 = torch.median(Dxy)
-    sigma = torch.sqrt(mdist2)
-    return sigma
-
-def plot_hist(P_scores, Q_scores, path, title, verbose=False, pi=None, gamma=None):
+def plot_hist(P_scores, Q_scores, path, title='', pi=None, gamma=None, thres=None, verbose=False):
+    """plot histogram of scores"""
+    if verbose:
+        print("plotting histogram to %s"%(path))
     if not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
     # if torch, to numpy
@@ -283,12 +218,12 @@ def plot_hist(P_scores, Q_scores, path, title, verbose=False, pi=None, gamma=Non
     if type(Q_scores) == torch.Tensor:
         Q_scores = Q_scores.cpu().numpy()
     fig = plt.figure()
-    plt.hist(P_scores, bins=100, label='$\mathrm{wit}_{Q,P}(X)$', alpha=0.5, color='r')
-    plt.hist(Q_scores, bins=100, label='$\mathrm{wit}_{Q,P}(Y)$', alpha=0.5, color='b')
+    plt.hist(P_scores, bins=50, label='$\mathrm{wit}_{Q,P}(X)$', alpha=0.5, color='r')
+    plt.hist(Q_scores, bins=50, label='$\mathrm{wit}_{Q,P}(Y)$', alpha=0.5, color='b')
     P_mean_score = np.mean(P_scores)
     Q_mean_score = np.mean(Q_scores)
-    plt.axvline(P_mean_score, color='r', linestyle='--', label='$\mathbb{E}\mathrm{wit}_{Q,P}(X)$')
-    plt.axvline(Q_mean_score, color='b', linestyle='--', label='$\mathbb{E}\mathrm{wit}_{Q,P}(Y)$')
+    plt.axvline(P_mean_score, color='r', linestyle='-', label='$\mathbb{E}\mathrm{wit}_{Q,P}(X)$')
+    plt.axvline(Q_mean_score, color='b', linestyle='-', label='$\mathbb{E}\mathrm{wit}_{Q,P}(Y)$')
     P_std_score = np.std(P_scores)
     Q_std_score = np.std(Q_scores)
     plt.axvline(P_mean_score+P_std_score, color='r', linestyle=':')
@@ -301,59 +236,28 @@ def plot_hist(P_scores, Q_scores, path, title, verbose=False, pi=None, gamma=Non
     if gamma is not None:
         plt.axvline(gamma.cpu().numpy(), color='g', label='threshold $\gamma$')
     if pi is not None:
-        plt.axvline(pi*Q_mean_score+(1-pi)*P_mean_score, color='y', label='$\pi$ mixed mean')
+        plt.axvline(pi*Q_mean_score+(1-pi)*P_mean_score, color='y', label='$\pi$=%.2f mixed mean'%pi)
+    if thres is not None:
+        plt.axvline(thres, color='k', linestyle='--', label='threshold $t$')
     plt.legend()
     plt.savefig(path)
     plt.clf()
     plt.close()
     plt.close('all')
     gc.collect()
-    if verbose:
-        print('saved hist.png...')
     return fig
 
-
-
-
-
-
-
-
-class Classifier(torch.nn.Module):
-    def __init__(self):
-        super(Classifier, self).__init__()
-        self.model = DN(out=1).to(device)
-        self.params = list(self.model.parameters())
-    def pval_crit(self, X_scores, Y_scores):
-        X_mean = torch.mean(X_scores)
-        X_std = torch.std(X_scores)
-        Y_mean = torch.mean(Y_scores)
-        return (Y_mean - X_mean) / X_std
-    def wiki_crit(self, X_scores, Y_scores):
-        Ex_g = torch.mean(X_scores)
-        Ey_g = torch.mean(Y_scores)
-        Ey_g2 = torch.mean(Y_scores**2)
-        crit = Ex_g - Ey_g - Ey_g2/4
-        return crit
-    def heur_crit(self, X_scores, Y_scores):
-        X_mean = torch.mean(X_scores)
-        Y_mean = torch.mean(Y_scores)
-        std = torch.std(Y_scores-X_scores)
-        return (Y_mean - X_mean) / std
-    def compute_loss(self, XY_tr, require_grad=True, method=''):
-        batch_size = XY_tr.shape[0]//2
-        prev = torch.is_grad_enabled(); torch.set_grad_enabled(require_grad)
-        model_output = self.model(XY_tr)
-        if method == 'mean/var':
-            crit = self.pval_crit(model_output[:batch_size], model_output[batch_size:]) 
-        elif method == 'chi_square_on_wiki':
-            crit = self.wiki_crit(model_output[:batch_size], model_output[batch_size:])
-        elif method == 'heuristic':
-            crit = self.heur_crit(model_output[:batch_size], model_output[batch_size:])
-        torch.set_grad_enabled(prev)
-        return - crit
-    def compute_scores(self, Z_input, require_grad=False):
-        prev = torch.is_grad_enabled(); torch.set_grad_enabled(require_grad)
-        model_output = self.model(Z_input)
-        torch.set_grad_enabled(prev)
-        return model_output
+def plot_pval_thres(fig_path, pack1, pack2):
+    t_opt, thres_opt_list, pval_opt_list = pack1
+    t_cal, thres_cal_list, pval_cal_list = pack2
+    fig, ax = plt.subplots()
+    ax.plot(thres_opt_list, pval_opt_list, label='opt', alpha=0.5)
+    ax.plot(thres_cal_list, pval_cal_list, label='cal', alpha=0.5)
+    ax.axvline(x=t_opt, color='r', label='$t_{opt}$')
+    ax.axhline(y=5, color='r')
+    ax.legend()
+    fig.gca().yaxis.set_minor_locator(plt.MultipleLocator(0.1))
+    ax.grid(which='minor')
+    fig.savefig(fig_path)
+    plt.close('all')
+    return fig

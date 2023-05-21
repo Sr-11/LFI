@@ -47,18 +47,23 @@ class another_DN(torch.nn.Module):
         return torch.zeros_like(input)
 
 class Model(torch.nn.Module):
-    def __init__(self, median_heuristic=False, X_heu=None, Y_heu=None):
+    def __init__(self, device, median_heuristic=False, XY_heu=None, **kwargs):
         super(Model, self).__init__()
+        self.device = device
         self.model = DN().to(device)
         self.another_model = another_DN().to(device)
         self.epsilonOPT = None; #self.epsilonOPT.requires_grad = False
-        self.sigmaOPT = MatConvert(np.sqrt(np.random.rand(1)), device, dtype); self.sigmaOPT.requires_grad = False
-        self.sigma0OPT = MatConvert(np.sqrt(np.random.rand(1)), device, dtype); self.sigma0OPT.requires_grad = True
         self.cst = MatConvert(np.ones((1,)), device, dtype); self.cst.requires_grad = False
-        self.L = 1
-        self.params = list(self.model.parameters())+[self.sigma0OPT]+[self.cst]
         if median_heuristic:
-            self.sigmaOPT = median_heuristic(X_heu, Y_heu)
+            with torch.no_grad():
+                self.sigmaOPT = median(XY_heu, XY_heu)
+                self.sigma0OPT = median(self.model(XY_heu), self.model(XY_heu))
+        else:
+            self.sigmaOPT = MatConvert(np.sqrt(np.random.rand(1)), device, dtype)
+            self.sigma0OPT = MatConvert(np.sqrt(np.random.rand(1)), device, dtype) 
+
+        self.sigmaOPT.requires_grad = False; self.sigma0OPT.requires_grad = False
+        self.params = list(self.model.parameters())+[self.sigma0OPT]+[self.cst]
             
     def compute_MMD(self, XY_tr, require_grad=True, is_var_computed=True):
         batch_size = XY_tr.shape[0]//2
@@ -66,14 +71,14 @@ class Model(torch.nn.Module):
         sigma = self.sigmaOPT ** 2; sigma0 = self.sigma0OPT ** 2
         modelu_output = self.model(XY_tr) 
         another_output =  self.another_model(XY_tr)
-        mmd_val, mmd_var, K = MMDu(modelu_output, batch_size, another_output, sigma, sigma0, ep,    
+        mmd_val, mmd_var = MMDu(modelu_output, batch_size, another_output, sigma, sigma0, ep,    
                                     self.cst,  is_var_computed=is_var_computed)
-        return mmd_val, mmd_var, K 
+        return mmd_val, mmd_var
     
     def compute_loss(self, XY_tr, require_grad=True, **kwargs):
         prev = torch.is_grad_enabled()
         torch.set_grad_enabled(require_grad)
-        mmd_val, mmd_var, K = self.compute_MMD(XY_tr)
+        mmd_val, mmd_var = self.compute_MMD(XY_tr)
         STAT_u = mmd_val / torch.sqrt(mmd_var+10**(-8)) 
         torch.set_grad_enabled(prev)
         return -STAT_u
@@ -107,7 +112,7 @@ class Model(torch.nn.Module):
         prev = torch.is_grad_enabled()
         torch.set_grad_enabled(require_grad)
         Z_input_splited = torch.split(Z_input, batch_size)
-        phi_Z = torch.zeros(Z_input.shape[0]).to(device)
+        phi_Z = torch.zeros(Z_input.shape[0]).to(X_te.device)
         for i, Z_input_batch in enumerate(Z_input_splited):
             # print(i)
             Kxz = self.compute_gram(X_te, Z_input_batch, require_grad=require_grad)

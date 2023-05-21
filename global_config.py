@@ -1,51 +1,47 @@
 
-# def checkpoints_path(cur_path, n_tr):
-#     return cur_path+'/checkpoints/checkpoints n_tr=%d/'%n_tr
-import sys, os
-current_dir = os.path.dirname(os.path.realpath(__file__))
+import os
+import inspect
+current_dir = os.path.abspath(os.path.dirname(inspect.getfile(inspect.currentframe())))
 
 method_configs = {
-    'Res_Net': True,
-    'Mix': False,
+    'Mix': True,
     'Fea_Gau': True,
     'Gaussian': True,
-
     'Scheffe': True,
     'LBI': True,
-
     'UME': True,
     'RFM': True
 }
 
 expr_configs = {
-    'checkpoints_path': current_dir+'/checkpoints',
-    'pval_mat_path': current_dir+'/pval_data'
+    'assets_path': current_dir+'/assets',
 }
 
 resource_configs = {
-    'Higgs_path': current_dir+'/HIGGS.npy',
+    'Higgs_path': current_dir+'/datasets/HIGGS.npy',
 }
 
 train_param_configs = {
-    'repeats': 5,
+    'gpu': '7',
     'n_tr_list': [1300000, 1000000, 700000, 400000, 200000, 50000],
-
-    'gpu_id': '7',
-    'batch_size': 1024,
+    'repeat': range(10),
+    'patience': 10,
+    'save_every': 1,
+    'learning_rate': 0.01,
+    'momentum': 0.9,
+    'batch_size': 4096,
     'N_epoch': 501,
-    'print_every': 10,
 }
 
 test_param_configs = {
+    'gpu': '6',
     'n_tr_list': [1300000, 1000000, 700000, 400000, 200000, 50000],
-    'num_models': 5, # same as train.repeats
-    'num_repeats': 5,
-
-    'gpu_id': '6',
-    'n_ev': 10000,
-    'n_te': 10000,
-    'test_hard': True,
-    'test_soft': True,
+    'num_models': range(10), # same as train.repeat
+    'num_repeat': range(10),
+    'n_cal': 32768,
+    'n_ev': lambda n_tr: n_tr,
+    'pi': 1/11,
+    'm': 1100,
 }
 
 

@@ -8,9 +8,9 @@ setup(
     author='Patrik Robert Gerber, Tianze Jiang, Yury Polyanskiy, Rui Sun',
     url='https://github.com/Sr-11/LFI',
     license='MIT',
-    packages=find_packages()
+    packages=find_packages(),
     install_requires=[
-        'python>=3.6.0',
+        'python>=3.9.12',
         'numpy>=1.22.3',
         'torch>=1.13.1',
         'importlib>=1.0.4',
@@ -19,6 +19,7 @@ setup(
         'pandas>=1.5.2',
         'pyroc>=0.1.1',
         'matplotlib>=3.6.2',
-        'IPython>=8.8.0'
-    ],
+        'IPython>=8.8.0',
+        'requests>=2.28.1',
+    ]
 )

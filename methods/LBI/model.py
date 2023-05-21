@@ -24,27 +24,26 @@ class Classifier(torch.nn.Module):
         return output
 
 class Model(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, device, **kwargs):
         super(Model, self).__init__()
+        self.device = device
         self.model = Classifier().to(device)
         self.params = list(self.model.parameters())
         self.criterion = torch.nn.BCEWithLogitsLoss().to(device)
     def compute_loss(self, XY_tr, require_grad=True, **kwargs):
-        prev = torch.is_grad_enabled(); torch.set_grad_enabled(require_grad)
         preds = self.model(XY_tr)
         batch_size = XY_tr.shape[0]//2
-        labels = torch.cat((torch.zeros((batch_size,1), dtype=dtype), torch.ones((batch_size,1), dtype=dtype)) ).to(device)
+        labels = torch.cat((torch.zeros((batch_size,1), dtype=dtype), torch.ones((batch_size,1), dtype=dtype)) ).to(self.device)
         loss = self.criterion(preds, labels)
-        torch.set_grad_enabled(prev)
         return loss
-    def compute_scores(self, X_te, Y_te, Z_input, require_grad=False, batch_size=1024):
-        # adjust batch size according to your memory capacity
-        prev = torch.is_grad_enabled(); torch.set_grad_enabled(require_grad)
+    def compute_scores(self, X_ev, Y_ev, Z_input, batch_size=1024):
         Z_input_splited = torch.split(Z_input, batch_size)
-        phi_Z = torch.zeros(Z_input.shape[0]).to(device)
+        phi_Z = torch.zeros(Z_input.shape[0]).to(self.device)
         for i, Z_input_batch in enumerate(Z_input_splited):
             phi_Z[i*batch_size: i*batch_size+Z_input_batch.shape[0]] = self.model(Z_input_batch).squeeze()
-        torch.set_grad_enabled(prev)
         return phi_Z
-    def compute_gamma(self, X_te, Y_te, pi):
+    def compute_gamma(self, X_ev, Y_ev, pi):
         return pi/2
+
+
+

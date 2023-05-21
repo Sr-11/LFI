@@ -54,7 +54,7 @@ def optimize_3sample_criterion_and_kernel(prepared_batched_XY, # total_S, is a l
                                         fig_loss_epoch_path, # name of the loss vs epoch figure
                                         chechpoint_folder_path # folder path to save checkpoint
                                         ):
-    params = kernel.params #+ [V]
+    params = kernel.params + [V]
     optimizer = torch.optim.SGD(params, lr=learning_rate, momentum=momentum)
     total_S = prepared_batched_XY
     batches = len(total_S)
