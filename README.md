@@ -3,7 +3,7 @@
 This repository contains a Python 3.9 implementation of the kernel tests described in our paper (removed for submission).
 
 # How to install?
-You don't need to install the package to reproduce our results. But if you want to, the package can be installed with the pip command `pip install .`
+You don't need to install the package to reproduce our results. Nevertheless the package can be installed with the pip command `pip install .`
 
 Once installed, you should be able to do `import lfi`.
 
@@ -33,9 +33,10 @@ Then run the following commands successively
 python datasets/Download_Higgs_Dataset.py
 python experiments/train_methods.py ALL
 python experiments/test_methods.py pval ALL
-python experiments/test_methods.py plot
 python experiments/test_methods.py error Mix
+python experiments/test_methods.py plot
 ```
+You may also run the Jupyter notebooks in `./experiments` the get the rest of the figures
 Then you will see the figures in `./assets`. Note that this process may take a few days to complete. 
 
 The following details explain what the commands above are doing. You may also reduce number of independent runs to obtain results more quickly.
@@ -52,33 +53,38 @@ The implementations of different benchmarks can be found in `./methods`. The cor
     Gaussian: MMD-O
     Mix: MMD-M
     Scheffe: SCHE
-    LBI, RFM, UME: LBI, RFM, UME
+    LBI: LBI
+    RFM: RFM
+    UME: UME
 
-For each `x` in {Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}, there are two files (`config.py` and `model.py`) in `./methods/x`. The file `./methods/x/model.py` defines the neural network architecture and the functions for computing the loss function and test statistics. The file `./methods/x/config.py` inherits from `./global_config.py` and defines the training and testing parameters.
+For each `x` in `{Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}`, there are two files, `config.py` and `model.py`, in `./methods/x`. The file `./methods/x/model.py` defines the neural network architecture and the functions for computing the loss function and test statistics. The file `./methods/x/config.py` inherits from `./global_config.py` and defines the training and testing parameters.
 
 To train one of the methods, or train all methods, run 
 ```
 python experiments/train_methods.py x kwargs
 ```
-where `x` in {ALL, Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}, and `kwargs` can be used to temporarily change the parameters in `./methods/x/config.py`. For example, we can do
+where `x` is in `{ALL, Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}`, and `kwargs` can be used to temporarily change the parameters in `./methods/x/config.py`. For example, we can do
 ```
 python experiments/train_methods.py Gaussian gpu=7 n_tr_list=[1000000,400000,200000] repeat=[0,1,2,3,4]
 ```
 The trained model will be saved to `./methods/x/checkpoints/n_tr=y#z/kernel.pt`, where $y=n_{tr}$ and z=number of independent run.
 
-*Note 1*: Plotting some figures below does not depend on all of the generated checkpoints.
+*Note 1*: Plotting some figures below does not depend on all of the generated checkpoints. You can plot some of the figures before all training are finished.
 
 ## 3. Generate estimated p-values:
 Run 
 ```
 python experiments/test_methods.py pval ALL
 ```
-to generate p-values. This generates data that are needed to plot our Figure 3. The generated data will be saved as `.npy` files in the same directory as the checkpoints `kernel.pt`.
+to generate p-values. This generates data that are needed to plot our Figure 3. The generated data will be saved as `.npy` files in the same directory as the checkpoints `kernel.pt`. Similarly you are free to adjust parameters, like
+```
+python experiments/test_methods.py pval Scheffe gpu=7
+```
 
 ## 4. Generate estimated test error:
 Run 
 ```
-python experiments/test_methods.py pval Mix
+python experiments/test_methods.py error
 ```
 This generates data that are needed to plot our Figure 1.
 
@@ -93,7 +99,7 @@ You will see the plot in `./assets/Significance of discovery`.
 Open `./experiments/bin_plot_invariant_mass.ipynb` and run it.
 
 ## 7. Plot the $(m,n_{ev})$ trade-off for a fixed kernel:
-Trade_off_fix_kernel.ipynb for the $(m,n_{ev})$ trade-off of a fixed kernel in our appendix.
+Open `./experiments/trade_off_fix_kernel.ipynb` and run it.
 
 ## References
 <a id="1">[1]</a> 
