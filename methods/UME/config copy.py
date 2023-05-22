@@ -1,4 +1,6 @@
 
+# def checkpoints_path(cur_path, n_tr):
+#     return cur_path+'/checkpoints/checkpoints n_tr=%d/'%n_tr
 import sys, os
 import importlib.util
 import numpy as np
@@ -13,9 +15,14 @@ from global_config import *
 
 
 train_param_configs.update({
+    'n_tr_list': np.array([1300000, 1600000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 20000, 10000, 6000, 4500, 3000, 2000, 1000, 500, 200, 100]),
+    'batch_size': 4096,
     'N_epoch': 501,
+    'learning_rate': 0.01,
+    'momentum': 0.9,
+    'save_every': 1,
     'patience': 10,
-    'momentum': 0.99,
+    'median_heuristic': True,
 })
 
 test_param_configs.update({
@@ -23,7 +30,7 @@ test_param_configs.update({
     'm': 1100,
     'test_hard': True,
     'test_soft': True,
-    'force_thres': 0.5,
+    'force_thres': None,
 })
 
 

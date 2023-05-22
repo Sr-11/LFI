@@ -2,8 +2,9 @@ import pandas as pd
 import numpy as np
 import requests
 from tqdm import tqdm
-import os   
+import os, inspect
 
+# current_dir = os.path.abspath(os.path.dirname(inspect.getfile(inspect.currentframe()))) 
 current_path = os.path.dirname(os.path.realpath(__file__))
 csv_file_path = os.path.join(current_path, "HIGGS.csv.gz")
 npy_file_path = os.path.join(current_path, "HIGGS.npy")

@@ -123,20 +123,12 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0, epsilon, cst,
     del Dxx, Dyy, Dxy, Dxx_org, Dyy_org, Dxy_org; gc.collect(); torch.cuda.empty_cache()
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
-def get_pval_from_evaluated_scores(X_score, Y_score, pi=1/11, m=1100, thres=None, verbose = False, Z_score=None): 
+def get_pval_from_evaluated_scores(X_score, Y_score, pi=1/11, m=1100, thres=None, verbose = False): 
     """compute p-value from evaluated witness scores."""
-    if Z_score != None:
-        X_mean = torch.mean(X_score)
-        X_std = torch.std(X_score)
-        Y_mean = torch.mean(Y_score)
-        Y_std = torch.std(Y_score)
-        Z_mean = torch.mean(Z_score)
-        p_value = (Z_mean-X_mean)/X_std*np.sqrt(Z_score.shape[0])
-        return p_value
     if thres == None:
-        X_mean = torch.mean(X_score)
+        X_mean = torch.mean(X_score, dtype=dtype)
         X_std = torch.std(X_score)
-        Y_mean = torch.mean(Y_score)
+        Y_mean = torch.mean(Y_score, dtype=dtype)
         Y_std = torch.std(Y_score)
         # 直接算平均的P的分数和方差，平均的Q的分数，然后加权
         Z_score = (1-pi)*X_mean + pi*Y_mean

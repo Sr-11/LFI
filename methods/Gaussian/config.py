@@ -16,6 +16,7 @@ from global_config import *
 
 train_param_configs.update({
     'median_heuristic': True,
+    'momentum': 0.99,
 })
 
 test_param_configs.update({

@@ -22,7 +22,7 @@ resource_configs = {
 }
 
 train_param_configs = {
-    'gpu': '7',
+    'gpu': '0',
     'n_tr_list': [1300000, 1000000, 700000, 400000, 200000, 50000],
     'repeat': range(10),
     'patience': 10,
@@ -34,7 +34,7 @@ train_param_configs = {
 }
 
 test_param_configs = {
-    'gpu': '6',
+    'gpu': '0',
     'n_tr_list': [1300000, 1000000, 700000, 400000, 200000, 50000],
     'num_models': range(10), # same as train.repeat
     'num_repeat': range(10),

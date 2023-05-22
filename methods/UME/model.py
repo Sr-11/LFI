@@ -181,7 +181,7 @@ class Model(torch.nn.Module):
         return -ratio
     
     # compute witness scores
-    def compute_scores(self, X_ev, Y_ev, Z_input, batch_size=4096, max_loops=1000):
+    def compute_scores(self, X_ev, Y_ev, Z_input, batch_size=4096, max_loops=8):
         self.update_tool_params()
         Z_input_splited = torch.split(Z_input, batch_size)
         X_ev_splited = torch.split(X_ev, batch_size)

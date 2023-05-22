@@ -14,7 +14,6 @@ from global_config import *
 
 train_param_configs.update({
     'N_epoch': 501,
-    'patience': 20,
     'momentum': 0.99,
     # 'learning_rate': 0.001,
 })

@@ -41,15 +41,13 @@ def early_stopping(validation_losses, patience):
 
 # find epoch-patience checkpoint
 def maintain_checkpoints(dir, patience, kernel, kernel_histories):
-    if not os.path.exists(dir):
-        os.makedirs(dir)
-    torch.save(kernel, os.path.join(dir, 'kernel_-0.pt'))
-    kernel_copy = torch.load(os.path.join(dir, 'kernel_-0.pt'))
+    torch.save(kernel, dir+'/kernel_-0.pt')
+    kernel_copy = torch.load(dir+'/kernel_-0.pt')
     kernel_histories.append(kernel_copy)
     assert len(kernel_histories) == patience+1, 'kernel_histories length = %d, patience = %d'%(len(kernel_histories), patience)
     for i in range(0, patience+1):
         if kernel_histories[patience-i] != None:
-            torch.save(kernel_histories[patience-i], os.path.join(dir, 'kernel_-%d.pt'%(i)))
+            torch.save(kernel_histories[patience-i], dir+'/kernel_-%d.pt'%(i))
     return kernel_histories.pop(0)
     
 # first level of training, one epoch
@@ -57,7 +55,7 @@ def one_epoch(epoch, kernel, train_loader, optimizer, train_loss_records):
     # torch.distributed.get_rank()
     if 'one_epoch' not in dir(kernel):
         train_loader_iter = iter(train_loader)
-        for XY_train in tqdm(train_loader_iter, leave=False):
+        for XY_train in tqdm(train_loader_iter):
             optimizer.zero_grad()
             obj = kernel.compute_loss(XY_train[0,:,:])
             obj.backward()
@@ -71,7 +69,6 @@ def one_epoch(epoch, kernel, train_loader, optimizer, train_loss_records):
 def train(n_tr, train_loader, S_validate, 
           kernel, optimizer, N_epoch, 
           save_every, ckpt_dir, patience, 
-          verbose=True,
           **kwargs):  
     J_validation_records = []
     train_loss_records = []
@@ -81,14 +78,12 @@ def train(n_tr, train_loader, S_validate,
     # start training
     for epoch in range(N_epoch):
         # run one epoch
-        if verbose == True:
-            print('----- n_tr =', n_tr, ', epoch =', epoch, '-----')
+        print('----- n_tr =', n_tr, ', epoch =', epoch, '-----')
         one_epoch(epoch, kernel, train_loader, optimizer, train_loss_records)
         # validation
         with torch.no_grad():
             J_validation_records.append( kernel.compute_loss(S_validate).item() )
-        if verbose == True:
-            print('validation =', J_validation_records[-1])
+        print('validation =', J_validation_records[-1])
         # early stopping
         stop_flag = early_stopping(J_validation_records, patience)
         last_patience_kernel = maintain_checkpoints(ckpt_dir, patience, kernel, kernel_histories)
@@ -210,4 +205,11 @@ def main(config_dir, **kwargs):
     if len(n_raise_error_list)>0:
         print('Training might failed at n = ', n_raise_error_list)
         
-    
+if __name__ == "__main__":
+    current_dir = os.path.abspath(os.path.dirname(inspect.getfile(inspect.currentframe()))) 
+    method = sys.argv[1]
+    config_dir = os.path.join(current_dir, '..', 'methods', method)
+    if method != 'RFM':
+        main(config_dir, **dict([arg.split('=') for arg in sys.argv[2:]]))
+    else:
+        os.system('python %s %s'%(os.path.join(config_dir, 'RFM_train.py'), ' '.join(sys.argv[2:])))
