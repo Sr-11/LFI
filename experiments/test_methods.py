@@ -33,12 +33,12 @@ def plot_pval_method_ntr():
             elif soft_or_hard == 'hard': 
                 return 'SCHE with $t_{opt}$' , 'red', ':', 2, 'o'
             elif type(soft_or_hard) == float: 
-                return 'SCHE with t=0.5', 'tab:pink', '-', 2, 'o'
+                return 'SCHE with t=0.5', 'b', '-', 2, 'o'
         if key == 'Fea_Gau': 
             if soft_or_hard == 'soft':
-                return 'MMD-G', 'b', '-.', 2, 'o'
-            elif soft_or_hard == 'hard': 
-                return 'MMD-G with $t_{opt}$', 'b', '-.', 2, 'o'
+                return 'MMD-G', 'm', '-.', 2, 'o'
+            # elif soft_or_hard == 'hard': 
+            #     return 'MMD-G with $t_{opt}$', 'C0', '-.', 2, 'o'
         if key == 'Gaussian': 
             if soft_or_hard == 'soft':
                 return 'MMD-O', 'y', '-', 2, 'o'
@@ -159,8 +159,8 @@ if __name__ == "__main__":
             for key in global_config.method_configs:
                 if global_config.method_configs[key]:
                     print('----- method =', key, '-----')
-                    lfi_train_path = os.path.join(current_dir, '..', 'lfi', 'test.py')
-                    os.system('python ' + lfi_train_path + key + 'pval ' + ' '.join(sys.argv[2:]))
+                    config_dir = os.path.join(current_dir, '..', 'methods', key)
+                    lfi.test.main_error(config_dir, **dict([arg.split('=') for arg in sys.argv[2:]]))
         else:
             config_dir = os.path.join(current_dir, '..', 'methods', method)
             if method != 'RFM':
@@ -170,7 +170,7 @@ if __name__ == "__main__":
     elif sys.argv[1] == 'error':
         method = 'Mix'
         config_dir = os.path.join(current_dir, '..', 'methods', method)
-        lfi.test.main_error(config_dir)
+        lfi.test.main_error(config_dir, **dict([arg.split('=') for arg in sys.argv[2:]]))
     else:
         print('Please enter: python test_methods.py x y z')
         print('x = pval, error, plot')

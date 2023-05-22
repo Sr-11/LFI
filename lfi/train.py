@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-import sys, os, gc
+import sys, os
 import importlib.util
 from matplotlib import pyplot as plt
 # import cProfile
@@ -8,10 +8,8 @@ from tqdm import tqdm
 from IPython.display import clear_output
 import json
 import inspect
-import argparse
 sys.path.append(os.path.abspath(os.path.dirname(os.path.dirname(inspect.getfile(inspect.currentframe())))))
-from lfi.utils import *
-
+from lfi.utils import MatConvert, dtype
 device = torch.device("cuda:0")
 
 # define the pre-processing function
@@ -23,7 +21,6 @@ def pre_process(dataset_P, dataset_Q, n, batch_size):
         for i in range(remainder):  
             split_size_list[i] += 1
         return split_size_list
-
     batches = (n-1)//batch_size + 1
     split_size_list = split_number(n, batches)
     cumulative_sum = np.cumsum([0]+split_size_list)
@@ -60,7 +57,7 @@ def one_epoch(epoch, kernel, train_loader, optimizer, train_loss_records):
         for XY_train in tqdm(train_loader_iter, leave=False):
             optimizer.zero_grad()
             obj = kernel.compute_loss(XY_train[0,:,:])
-            obj.backward()
+            obj.backward(retain_graph=False)
             optimizer.step()   
             train_loss_records.append(obj.item())
         kernel.epoch = epoch
@@ -154,7 +151,6 @@ def main(config_dir, **kwargs):
         median_heuristic = config.train_param_configs['median_heuristic']
         Model_init_kwargs['median_heuristic'] = median_heuristic
     # if Model_init_kwargs['median_heuristic'] == True:
-
 
     # train
     n_raise_error_list = []

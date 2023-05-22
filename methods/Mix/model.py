@@ -1,10 +1,10 @@
 
-from lfi.utils import *
+from lfi.utils import MatConvert, dtype, median, Pdist2_, MMDu
 import torch
 import numpy as np
 
 class DN(torch.nn.Module):
-    def __init__(self, H=300, out=100):
+    def __init__(self, H=300, out=300):
         super(DN, self).__init__()
         self.restored = False
         self.model = torch.nn.Sequential(
@@ -142,17 +142,22 @@ class Model(torch.nn.Module):
             self.Kyy *= (1-self.ep); self.Kyy += self.ep
             self.Kyy *= (self.Dyy_org/self.sigma).neg_().exp_(); self.Kyy *= self.cst
 
-    def compute_MMD(self, XY_tr, is_var_computed=True):
+    # def compute_MMD(self, XY_tr, is_var_computed=True):
+    #     batch_size = XY_tr.shape[0]//2
+    #     ep = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
+    #     sigma = self.sigmaOPT ** 2; sigma0 = self.sigma0OPT ** 2
+    #     modelu_output = self.model(XY_tr) 
+    #     another_output =  self.another_model(XY_tr)
+    #     mmd_val, mmd_var = MMDu(modelu_output, batch_size, another_output, sigma, sigma0, ep,    
+    #                                 self.cst,  is_var_computed=is_var_computed)
+    #     return mmd_val, mmd_var
+    def compute_loss(self, XY_tr):
         batch_size = XY_tr.shape[0]//2
         ep = torch.exp(self.epsilonOPT)/(1+torch.exp(self.epsilonOPT))
         sigma = self.sigmaOPT ** 2; sigma0 = self.sigma0OPT ** 2
         modelu_output = self.model(XY_tr) 
         another_output =  self.another_model(XY_tr)
-        mmd_val, mmd_var = MMDu(modelu_output, batch_size, another_output, sigma, sigma0, ep,    
-                                    self.cst,  is_var_computed=is_var_computed)
-        return mmd_val, mmd_var
-    def compute_loss(self, XY_tr):
-        mmd_val, mmd_var = self.compute_MMD(XY_tr)
+        mmd_val, mmd_var = MMDu(modelu_output, batch_size, another_output, sigma, sigma0, ep, self.cst,  is_var_computed=True)
         STAT_u = mmd_val / torch.sqrt(mmd_var+10**(-8)) 
         return -STAT_u
     
@@ -173,7 +178,7 @@ class Model(torch.nn.Module):
                 cum_sum += torch.sum(self.Kyz,0) - torch.sum(self.Kxz,0)
                 cum_count += X_ev_splited[i_X].shape[0]
             phi_Z[i_Z*batch_size: i_Z*batch_size+Z_input_batch.shape[0]] = cum_sum/cum_count
-        del X_ev_splited, Y_ev_splited, Z_input_splited; gc.collect(); torch.cuda.empty_cache()
+        del X_ev_splited, Y_ev_splited, Z_input_splited;# gc.collect(); torch.cuda.empty_cache()
         return phi_Z
     
     # compute the threshold gamma

@@ -50,7 +50,7 @@ def simulate_p_value(dataset_P, dataset_Q,
                     if param_info.default != inspect.Parameter.empty and param_info.default != None:
                         max_loops_default = param_info.default
                     break
-            print('-- n_ev=%d, n_cal=%d, batch_size=%s, max_loops=%s'%(n_ev, n_cal, str(batch_size_default), str(max_loops_default)))
+            print('-- n_ev=%d, n_cal=%d, default batch_size=%s, max_loops=%s'%(n_ev, n_cal, str(batch_size_default), str(max_loops_default)))
             try:
                 X_scores = kernel.compute_scores(X_ev, Y_ev, X_cal) # (n_cal,)
                 Y_scores = kernel.compute_scores(X_ev, Y_ev, Y_cal) # (n_cal,)
@@ -177,8 +177,8 @@ def simulate_error(dataset_P, dataset_Q,
     """simulate test error by 'repeats' times"""
     with torch.no_grad():
         m_num = m.shape[0]
-        type_1_error_list = np.zeros([m_num, repeats])
-        type_2_error_list = np.zeros([m_num, repeats])
+        type_1_error_list = np.zeros([m_num, len(repeats)])
+        type_2_error_list = np.zeros([m_num, len(repeats)])
         # run many times
         for j in tqdm(repeats, desc='progress of repeating in n_tr=%d'%n_tr):
             idx = np.random.choice(dataset_P.shape[0]-n_tr, n_ev+n_cal, replace=False)+n_tr
@@ -220,13 +220,15 @@ def main_error(config_dir, **kwargs):
         sys.path.append(model_dir)
         from model import Model
         # load params
+        overwrite = False
         n_list = config.test_param_configs['error_n_list']
         m_list = config.test_param_configs['error_m_list']
-        pi = config.test_param_configs['pi']
+        pi = config.test_param_configs['error_pi']
         num_models = config.test_param_configs['num_models']
         num_repeat = config.test_param_configs['num_repeat']
         n_cal = config.test_param_configs['n_cal']
         n_ev = config.test_param_configs['n_ev']
+        batch_size = config.test_param_configs['batch_size']
         if 'gpu' in kwargs.keys():
             os.environ["CUDA_VISIBLE_DEVICES"] = kwargs['gpu']; 
         if 'n_list' in kwargs.keys():
@@ -267,16 +269,18 @@ def main_error(config_dir, **kwargs):
                     callback()
                     n_ev_ = n_ev(n_tr)
                     kernel = torch.load(os.path.join(ckpt_dir,'kernel.pt'))
-                    plot_hist_path =  torch.load(os.path.join(ckpt_dir,'hist_e.png'))
+                    plot_hist_path =  os.path.join(ckpt_dir,'hist_e.png')
                     print('Start Compute')
                     type_1_error, type_2_error = simulate_error(dataset_P, dataset_Q,
                                                                     n_tr, n_cal, n_ev_, 
                                                                     kernel, num_repeat,
                                                                     pi, m_list,
+                                                                    batch_size,
                                                                     plot_hist_path=plot_hist_path,
                                                                     callback=callback)
-                    np.save('../methods/Mix/checkpoints/n_tr=%d/type_1_error.npy'%n_tr, type_1_error)
-                    np.save('../methods/Mix/checkpoints/n_tr=%d/type_2_error.npy'%n_tr, type_2_error)
+                    
+                    np.save(os.path.join(ckpt_dir,'type_1_error.npy'), type_1_error)
+                    np.save(os.path.join(ckpt_dir,'type_2_error.npy'), type_2_error)
                     print('Finish Compute')
                     print('type_1_error:')
                     print(np.mean(type_1_error, axis=1))

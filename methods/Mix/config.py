@@ -18,7 +18,7 @@ train_param_configs.update({
     'n_tr_list': np.array([1600000, 1300000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 20000, 10000, 6000, 4500, 3000, 2000, 1000, 500, 200, 100]),
     'N_epoch': 501,
     'median_heuristic': True,
-    'learning_rate': 0.002,
+    'learning_rate': 0.001,
     'momentum': 0.99,
     'batch_size': 1024,
 })
@@ -28,9 +28,10 @@ test_param_configs.update({
     'test_hard': True,
     'test_soft': True,
     'force_thres': None,
-    'error_n_list': np.array([1600000, 1300000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 20000, 10000, 6000, 4500, 3000, 2000, 1000, 500, 200, 100]), # for test error
+    'error_n_list': np.array([1600000, 1300000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 20000, 10000, 6000, 4500, 3000, 2000, 1000, 500, 200, 100])[::-1], # for simulating test error
     'error_m_list': 10**np.linspace(2, 7, 26).astype(int), # for test error
-    'error_pi': 0.1
+    'error_pi': 0.1,
+    'batch_size': 8192,
 })
 
 

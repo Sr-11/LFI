@@ -38,7 +38,7 @@ python experiments/test_methods.py error Mix
 ```
 Then you will see the figures in `./assets`. Note that this process may take a few days to complete. 
 
-The following details explain what the commands above are doing. Follow the steps below to reproduce the figures and data in our paper. You may also reduce number of independent runs to obtain results more quickly.
+The following details explain what the commands above are doing. You may also reduce number of independent runs to obtain results more quickly.
  
 ## 1. Prepare dataset:
 The Higgs dataset can be found at http://archive.ics.uci.edu/ml/datasets/HIGGS [[1]](#1).
@@ -54,31 +54,46 @@ The implementations of different benchmarks can be found in `./methods`. The cor
     Scheffe: SCHE
     LBI, RFM, UME: LBI, RFM, UME
 
-For each $x\in\{\text{Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}\}$, there are 2 files (`config.py` and `model.py`) in `./methods/x`. 
- 
+For each `x` in {Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}, there are two files (`config.py` and `model.py`) in `./methods/x`. The file `./methods/x/model.py` defines the neural network architecture and the functions for computing the loss function and test statistics. The file `./methods/x/config.py` inherits from `./global_config.py` and defines the training and testing parameters.
 
+To train one of the methods, or train all methods, run 
+```
+python experiments/train_methods.py x kwargs
+```
+where `x` in {ALL, Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}, and `kwargs` can be used to temporarily change the parameters in `./methods/x/config.py`. For example, we can do
+```
+python experiments/train_methods.py Gaussian gpu=7 n_tr_list=[1000000,400000,200000] repeat=[0,1,2,3,4]
+```
+The trained model will be saved to `./methods/x/checkpoints/n_tr=y#z/kernel.pt`, where $y=n_{tr}$ and z=number of independent run.
+
+*Note 1*: Plotting some figures below does not depend on all of the generated checkpoints.
+
+## 3. Generate estimated p-values:
 Run 
 ```
-python experiments/train_methods.py ALL
+python experiments/test_methods.py pval ALL
 ```
-to train. 
+to generate p-values. This generates data that are needed to plot our Figure 3. The generated data will be saved as `.npy` files in the same directory as the checkpoints `kernel.pt`.
 
-*Note 1*: Plotting some figures below does not depend on all of the generated checkpoints, so one can quickly plot something before all training is over. 
+## 4. Generate estimated test error:
+Run 
+```
+python experiments/test_methods.py pval Mix
+```
+This generates data that are needed to plot our Figure 1.
 
-#### 3. Generate estimated p-values:
+## 5. Plot Figure 3:
+Run 
+```
+python experiments/test_methods.py plot
+```
+You will see the plot in `./assets/Significance of discovery`.
 
-#### 4. Generate estimated test error:
+## 6. Plot the invariant mass distribution plot in our appendix:
+Open `./experiments/bin_plot_invariant_mass.ipynb` and run it.
 
-#### 5. Plot results
-
-### 3. Plot the invariant mass distribution plot in our appendix:
-Invariant_mass.ipynb for the invariant mass distribution plot in our appendix.
-### 4. Plot the $(m,n_{test})$ trade-off for different Type 1 error + Type 2 error levels for a fixed kernel:
-Trade_off_fix_kernel.ipynb for the $(m,n_{test})$ trade-off of a fixed kernel in our appendix.
-### 5. Plot the p-value vs n curve: 
-Generate_p_data.ipynb for calculating p-value from saved checkpoints, then run p_n_plot.ipynb for generating the p-value-n curve for different methods.  
-### 6. Plot the $(m,n_{train})$ trade-off for different Type 1 error + Type 2 error levels:
-First run generate_error_m_n_train.ipynb 10 times following the instruction in it (one need to change $r$ in it and manually rerun it). After obtaining data, run plot_error_m_n_train.ipynb to generate the figure.
+## 7. Plot the $(m,n_{ev})$ trade-off for a fixed kernel:
+Trade_off_fix_kernel.ipynb for the $(m,n_{ev})$ trade-off of a fixed kernel in our appendix.
 
 ## References
 <a id="1">[1]</a> 

@@ -120,7 +120,7 @@ def MMDu(Fea, len_s, Fea_org, sigma, sigma0, epsilon, cst,
         Kx = cst*torch.exp(-Dxx / sigma0)
         Ky = cst*torch.exp(-Dyy / sigma0)
         Kxy = cst*torch.exp(-Dxy / sigma0)
-    del Dxx, Dyy, Dxy, Dxx_org, Dyy_org, Dxy_org; gc.collect(); torch.cuda.empty_cache()
+    del Dxx, Dyy, Dxy, Dxx_org, Dyy_org, Dxy_org; 
     return h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U)
 
 def get_pval_from_evaluated_scores(X_score, Y_score, pi=1/11, m=1100, thres=None, verbose = False, Z_score=None): 
