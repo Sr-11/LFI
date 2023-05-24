@@ -314,15 +314,6 @@ def get_thres_from_evaluated_scores(X, Y):
     #p_list = p_list[p_list.shape[0]//10 : p_list.shape[0]//10*9]
     sorted = np.sort(np.unique(torch.cat((X,Y), dim=0)), axis=None)
     i = np.argmax(p_list)
-
-    # print(sorted[i], np.max(PQhat), np.min(PQhat))
-    # print('thres=', sorted[i], ',max=', np.max(PQhat), ',min=', np.min(PQhat))
-    # plt.plot(sorted, p_list)
-    # plt.axvline(x=sorted[i], color='r', label='thres')
-    # plt.savefig('p-thres.png')
-    # print('In get_thres(), p-thres.png saved')
-    # plt.show()
-
     return sorted[i], x[i], y[i]
 
 def get_error_from_evaluated_scores(X_scores, Y_scores, 
@@ -342,31 +333,4 @@ def get_error_from_evaluated_scores(X_scores, Y_scores,
     type_2_error = scipy.stats.norm.cdf((gamma-mean2)/std2*np.sqrt(m))
 
     return type_1_error, type_2_error
-    # def type_1_error_H0(self, pi, m, use_gaussian, MonteCarlo):
-    #     P_scores = self.P_scores
-    #     Q_scores = self.Q_scores
-    #     mean = self.P_mean
-    #     std = self.P_std
-    #     P_mean = self.P_mean
-    #     P_std = self.P_std
-    #     Q_mean = self.Q_mean
-    #     gamma = self.EKxx*(pi/2-1) + self.EKxy*(1-pi) + self.EKyy*(pi/2)
-    #     #gamma = (pi/2)*Q_mean + (1-pi/2)*P_mean
-    #     self.gamma = gamma
-    #     if m==1:
-    #         type_1_error = np.mean(P_scores > gamma)
-    #         self.type_1_error = type_1_error
-    #         return type_1_error
-    #     if use_gaussian:
-    #         type_1_error = 1-scipy.stats.norm.cdf((gamma-mean)/std*np.sqrt(m))
-    #     else:
-    #         MonteCarlo_list = np.zeros(MonteCarlo)
-    #         for i in range(MonteCarlo):
-    #             idx = np.random.choice(P_scores.shape[0], m, replace=False)
-    #             MonteCarlo_list[i] = np.mean(P_scores[idx])
-    #         type_1_error = np.mean(MonteCarlo_list > gamma)
-    #         del MonteCarlo_list
-    #         gc.collect()
-    #     self.type_1_error = type_1_error
-    #     return type_1_error
-    # return 0
+   

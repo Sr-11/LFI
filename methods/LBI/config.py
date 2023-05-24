@@ -13,9 +13,6 @@ from global_config import *
 
 
 train_param_configs.update({
-    'N_epoch': 501,
-    'momentum': 0.99,
-    # 'learning_rate': 0.001,
 })
 
 test_param_configs.update({

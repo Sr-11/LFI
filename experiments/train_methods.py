@@ -12,14 +12,21 @@ if __name__ == '__main__':
         for key in global_config.method_configs:
             if global_config.method_configs[key]:
                 print('----- method =', key, '-----')
-                config_dir = os.path.join(current_dir, '..', 'methods', method)
-                if method != 'RFM':
+                config_dir = os.path.join(current_dir, '..', 'methods', key)
+                if key == 'RFM':
+                    os.system('python %s %s'%(os.path.join(config_dir, 'RFM_train.py'), ' '.join(sys.argv[2:])))
+                elif key == 'Mix':
+                    os.system('python %s %s'%(os.path.join(config_dir, 'MMD_M.py'), ' '.join(sys.argv[2:])))
                     lfi.train.main(config_dir, **dict([arg.split('=') for arg in sys.argv[2:]]))
                 else:
-                    os.system('python %s %s'%(os.path.join(config_dir, 'RFM_train.py'), ' '.join(sys.argv[2:])))
+                    lfi.train.main(config_dir, **dict([arg.split('=') for arg in sys.argv[2:]]))
+
     else:
         config_dir = os.path.join(current_dir, '..', 'methods', method)
-        if method != 'RFM':
+        if method == 'RFM':
+            os.system('python %s %s'%(os.path.join(config_dir, 'RFM_train.py'), ' '.join(sys.argv[2:])))
+        elif method == 'Mix':
+            os.system('python %s %s'%(os.path.join(config_dir, 'MMD_M.py'), ' '.join(sys.argv[2:])))
             lfi.train.main(config_dir, **dict([arg.split('=') for arg in sys.argv[2:]]))
         else:
-            os.system('python %s %s'%(os.path.join(config_dir, 'RFM_train.py'), ' '.join(sys.argv[2:])))
+            lfi.train.main(config_dir, **dict([arg.split('=') for arg in sys.argv[2:]]))

@@ -15,7 +15,6 @@ from global_config import *
 
 
 train_param_configs.update({
-    'median_heuristic': True,
 })
 
 test_param_configs.update({

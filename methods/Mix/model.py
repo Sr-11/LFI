@@ -182,30 +182,32 @@ class Model(torch.nn.Module):
         return phi_Z
     
     # compute the threshold gamma
-    def compute_gamma(self, X_ev, Y_ev, pi, batch_size=10000, MAX_LOOPS=100):
+    def compute_gamma(self, X_ev, Y_ev, pi, batch_size=10000, MAX_LOOPS=100, verbose=False):
         # If X_ev and Y_ev are large, we use Monte Carlo 
-        batch_size = 10000
         self.update_tool_params()
-        nx = X_ev.shape[0]
-        assert nx == Y_ev.shape[0]
-        if nx < batch_size:
-            MAX_LOOPS = 1
-        gamma_records = torch.zeros(MAX_LOOPS)
-        for i_monte in range(MAX_LOOPS):
-            if nx >= batch_size:
-                idx = np.random.choice(nx, batch_size, replace=False)
-                idy = np.random.choice(nx, batch_size, replace=False)
-            else:
-                idx = np.random.choice(nx, nx, replace=False)
-                idy = np.random.choice(nx, nx, replace=False)
-            X_ev_batch = X_ev[idx]
-            Y_ev_batch = Y_ev[idy]
-            self.update_dist_matrix(X_ev_batch, Y_ev_batch, None, xy=True, xz=False, yz=False, xx=True, yy=True)
-            self.update_gram_matrix(X_ev_batch, Y_ev_batch, None, xy=True, xz=False, yz=False, xx=True, yy=True)
-            EKxx = (torch.sum(self.Kxx) - torch.sum(torch.diag(self.Kxx)))/ (batch_size * (batch_size - 1))
-            EKyy = (torch.sum(self.Kyy) - torch.sum(torch.diag(self.Kyy)))/ (batch_size * (batch_size - 1))
-            EKxy = torch.sum(self.Kxy) / (batch_size * batch_size)
-            gamma_records[i_monte] = EKxx*(pi/2-1) + EKxy*(1-pi) + EKyy*(pi/2)
-        print('gamma MonteCarlo std/mean', torch.std(gamma_records)/torch.mean(gamma_records)/np.sqrt(MAX_LOOPS))
-        gamma = torch.mean(gamma_records)
+        n_ev = X_ev.shape[0]
+        assert n_ev == Y_ev.shape[0]
+        if n_ev < batch_size:
+            self.update_dist_matrix(X_ev, Y_ev, None, xy=True, xz=False, yz=False, xx=True, yy=True)
+            self.update_gram_matrix(X_ev, Y_ev, None, xy=True, xz=False, yz=False, xx=True, yy=True)
+            EKxx = (torch.sum(self.Kxx) - torch.sum(torch.diag(self.Kxx)))/ (n_ev * (n_ev - 1))
+            EKyy = (torch.sum(self.Kyy) - torch.sum(torch.diag(self.Kyy)))/ (n_ev * (n_ev - 1))
+            EKxy = torch.sum(self.Kxy)/ (n_ev * n_ev)
+            gamma = EKxx*(pi/2-1) + EKxy*(1-pi) + EKyy*(pi/2)
+        else:
+            gamma_records = torch.zeros(MAX_LOOPS)
+            for i_monte in range(MAX_LOOPS):
+                idx = np.random.choice(n_ev, batch_size, replace=False)
+                idy = np.random.choice(n_ev, batch_size, replace=False)
+                X_ev_batch = X_ev[idx]
+                Y_ev_batch = Y_ev[idy]
+                self.update_dist_matrix(X_ev_batch, Y_ev_batch, None, xy=True, xz=False, yz=False, xx=True, yy=True)
+                self.update_gram_matrix(X_ev_batch, Y_ev_batch, None, xy=True, xz=False, yz=False, xx=True, yy=True)
+                EKxx = (torch.sum(self.Kxx) - torch.sum(torch.diag(self.Kxx)))/ (batch_size * (batch_size - 1))
+                EKyy = (torch.sum(self.Kyy) - torch.sum(torch.diag(self.Kyy)))/ (batch_size * (batch_size - 1))
+                EKxy = torch.sum(self.Kxy) / (batch_size * batch_size)
+                gamma_records[i_monte] = EKxx*(pi/2-1) + EKxy*(1-pi) + EKyy*(pi/2)
+            if verbose:
+                print('std/mean of Monte Carlo:', torch.abs(torch.std(gamma_records)/torch.mean(gamma_records)/np.sqrt(MAX_LOOPS)))
+            gamma = torch.mean(gamma_records)
         return gamma

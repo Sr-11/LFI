@@ -8,19 +8,20 @@ You don't need to install the package to reproduce our results. Nevertheless the
 Once installed, you should be able to do `import lfi`.
 
 # Dependency
-The development of this project relied on the following Python packages. It is recommended to use the specified version numbers for optimal compatibility:
+Our code relies on the following Python packages. It is recommended to use the specified version numbers for optimal compatibility:
 
     python==3.9.12
     numpy==1.22.3
     torch==1.13.1
     importlib==1.0.4
-    tqdm==4.64.1
     scipy==1.7.3
+    tqdm==4.64.1
     pandas==1.5.2
     pyroc==0.1.1
     matplotlib==3.6.2
-    IPython==8.8.0
     requests==2.28.1
+    IPython==8.8.0
+    jupyterlab==3.5.2
 
 Moreover our GPU is NVIDIA Quadro RTX 8000. 
 
@@ -34,9 +35,11 @@ python datasets/Download_Higgs_Dataset.py
 python experiments/train_methods.py ALL
 python experiments/test_methods.py pval ALL
 python experiments/test_methods.py error Mix
-python experiments/test_methods.py plot
+python experiments/test_methods.py pval plot
+python experiments/error_of_var_kernel.py
+
 ```
-You may also run the Jupyter notebooks in `./experiments` the get the rest of the figures
+Run the Jupyter notebooks in `./experiments` the get all of the figures.
 Then you will see the figures in `./assets`. Note that this process may take a few days to complete. 
 
 The following details explain what the commands above are doing. You may also reduce number of independent runs to obtain results more quickly.
@@ -57,13 +60,13 @@ The implementations of different benchmarks can be found in `./methods`. The cor
     RFM: RFM
     UME: UME
 
-For each `x` in `{Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}`, there are two files, `config.py` and `model.py`, in `./methods/x`. The file `./methods/x/model.py` defines the neural network architecture and the functions for computing the loss function and test statistics. The file `./methods/x/config.py` inherits from `./global_config.py` and defines the training and testing parameters.
+For each `x` in `{Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}`, there are two files, `config.py` and `model.py`, in `./methods/x`. The file `./methods/x/model.py` defines the neural network architecture and the functions for computing the loss function and test statistics. The file `./methods/x/config.py` defines the training and testing parameters. The file `./methods/x/config.py` inherits from `./global_config.py` except the `RFM` method (since `RFM` does not use gradient descent for training).
 
 To train one of the methods, or train all methods, run 
 ```
 python experiments/train_methods.py x kwargs
 ```
-where `x` is in `{ALL, Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}`, and `kwargs` can be used to temporarily change the parameters in `./methods/x/config.py`. For example, we can do
+where `x` is in `{ALL, Fea\_Gau, Gaussian, Mix, Scheffes, LBI, RFM, UME}`, and `kwargs` can be used to temporarily change the parameters in `./methods/x/config.py`. For example, we can do (space used as a delimiter):
 ```
 python experiments/train_methods.py Gaussian gpu=7 n_tr_list=[1000000,400000,200000] repeat=[0,1,2,3,4]
 ```

@@ -14,10 +14,10 @@ global_config_spec.loader.exec_module(global_config)
 from global_config import *
 
 train_param_configs.update({
-    'batch_size': 4096,
+    # 'batch_size': 4096,
     'N_epoch': 501,
-    'learning_rate': 0.01,
-    'momentum': 0.9,
+    # 'learning_rate': 0.01,
+    # 'momentum': 0.9,
     'save_every': 1,
     'median_heuristic': True,
     'J': 4096

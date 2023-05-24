@@ -17,21 +17,21 @@ resource_configs = {
 }
 
 train_param_configs = {
-    'gpu': '0',
+    'gpu': '4',
     'n_tr_list': [1300000, 1000000, 700000, 400000, 200000, 50000],
     'repeats': range(10),
-    'batch_size': 4096,
+    'batch_size': 20000,
     'N_epoch': 501,
     'patience': 10,
     'median_heuristic': True,
 }
 
 test_param_configs = {
-    'gpu': '6',
+    'gpu': '4',
     'n_tr_list': [1300000, 1000000, 700000, 400000, 200000, 50000],
     'num_models': range(10),
-    'num_repeats': range(10),
-    'n_cal': 32768,
+    'num_repeat': range(10),
+    'n_cal': 10000,
     'n_ev': 10000,
     'test_hard': False,
     'test_soft': True,

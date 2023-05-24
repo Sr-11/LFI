@@ -7,20 +7,15 @@ import numpy as np
 import inspect
 
 current_dir = os.path.abspath(os.path.dirname(inspect.getfile(inspect.currentframe()))) 
-global_config_path = current_dir+'/../../global_config.py'
-global_config_spec = importlib.util.spec_from_file_location('config',global_config_path)
-global_config = importlib.util.module_from_spec(global_config_spec)
-global_config_spec.loader.exec_module(global_config)
+print('current_dir:', current_dir)
+global_config_dir = os.path.join(current_dir, '..', '..')
+sys.path.append(global_config_dir)
 from global_config import *
 
 
 train_param_configs.update({
-    'n_tr_list': np.array([1600000, 1300000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 20000, 10000, 6000, 4500, 3000, 2000, 1000, 500, 200, 100]),
-    'N_epoch': 501,
+    'n_tr_list': np.array([1600000, 1300000, 1000000, 700000, 400000, 200000, 100000, 50000, 30000, 20000, 10000, 6000, 4500, 3000, 2000, 1000, 500, 200, 100])[::-1],
     'median_heuristic': True,
-    'learning_rate': 0.001,
-    'momentum': 0.99,
-    'batch_size': 1024,
 })
 
 test_param_configs.update({

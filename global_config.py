@@ -27,14 +27,15 @@ train_param_configs = {
     'repeat': range(10),
     'patience': 10,
     'save_every': 1,
-    'learning_rate': 0.01,
-    'momentum': 0.9,
-    'batch_size': 4096,
+    'learning_rate': 0.002,
+    'momentum': 0.99,
+    'batch_size': 1024,
+    'median_heuristic': True,
     'N_epoch': 501,
 }
 
 test_param_configs = {
-    'gpu': '0',
+    'gpu': '1',
     'n_tr_list': [1300000, 1000000, 700000, 400000, 200000, 50000],
     'num_models': range(10), # same as train.repeat
     'num_repeat': range(10),

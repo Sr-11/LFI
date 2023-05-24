@@ -3,6 +3,7 @@ import torch
 from matplotlib import pyplot as plt
 import os, sys, inspect, gc
 import config as config
+import json
 from rfm import *
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
@@ -29,11 +30,11 @@ def main(**kwargs):
     if 'gpu' in kwargs:
         os.environ["CUDA_VISIBLE_DEVICES"]= kwargs['gpu']
     if 'n_tr_list' in kwargs:
-        n_tr_list = kwargs['n_tr_list']
+        n_tr_list = json.loads(kwargs['n_tr_list'])
     if 'repeat' in kwargs:
-        repeat = kwargs['repeat']
+        repeat = json.loads(kwargs['repeat'])
     if 'patience' in kwargs:
-        patience = kwargs['patience']
+        patience = int(kwargs['patience'])
     if 'median_heuristic' in kwargs:
         median_heuristic = kwargs['median_heuristic']
     checkpoints_path = os.path.join(current_dir, 'checkpoints')

@@ -52,8 +52,10 @@ def Pdist2_(D, x, y):
         D = Pdist2(x, y)
         return D
 
-def median(X,Y,L=1):
+def median(X,Y=None,L=1):
     '''Implementation of the median heuristic. See Gretton 2012'''
+    if Y is None:
+        Y = X
     n1, d1 = X.shape
     n2, d2 = Y.shape
     assert d1 == d2, 'Dimensions of input vectors must match'
@@ -159,9 +161,9 @@ def get_pval_from_evaluated_scores(X_score, Y_score, pi=1/11, m=1100, thres=None
         p_val = scipy.stats.norm.ppf(p_val)
         return p_val 
 
-def get_auc_from_evaluated_scores(X_scores, Y_scores, plot_ROC_path=None, pyroc=False):
+def get_auc_from_evaluated_scores(X_scores, Y_scores, plot_ROC_path=None, use_pyroc=False):
     """compute ROC from evaluated witness scores."""
-    if pyroc:
+    if use_pyroc:
         M = X_scores.shape[0]
         outcome = np.concatenate((np.zeros(M), np.ones(M)))
         df = pd.DataFrame(np.concatenate([X_scores,Y_scores]) , columns=['Higgs_Default'])

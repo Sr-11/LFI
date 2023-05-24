@@ -1,3 +1,4 @@
+from operator import le
 import numpy as np
 import torch
 import sys, os, gc
@@ -26,6 +27,7 @@ def simulate_p_value(dataset_P, dataset_Q,
                     test_soft, test_hard, force_thres,
                     plot_hist_path,
                     print_cal_opt_dist=False,
+                    verbose=True,
                     **kwargs):
     """simulate p-value by 'repeats' times"""
     with torch.no_grad():
@@ -33,7 +35,7 @@ def simulate_p_value(dataset_P, dataset_Q,
         p_hard_list = np.zeros(len(repeats)) # hard: use T=\sum 1{f(Z)>t}
         p_force_thres_list = np.zeros(len(repeats))
         # run many times
-        for r in tqdm(repeats, desc='progress of repeating %d times when n_tr=%d'%(len(repeats),n_tr)):
+        for r in tqdm(repeats, disable= not verbose, desc='progress of repeating %d times when n_tr=%d'%(len(repeats),n_tr)):
             X_ev = dataset_P[ np.random.choice(n_tr, n_ev, replace=False) ]
             Y_ev = dataset_Q[ np.random.choice(n_tr, n_ev, replace=False) ]
             X_cal = dataset_P[ n_tr + np.random.choice(dataset_P.shape[0]-n_tr, n_cal, replace=False) ]
@@ -111,6 +113,7 @@ def main_pval(config_dir, **kwargs):
         sys.path.append(model_dir)
         from model import Model
         # load params
+        os.environ["CUDA_VISIBLE_DEVICES"]=config.test_param_configs['gpu']
         n_tr_list = config.test_param_configs['n_tr_list']
         n_cal = config.test_param_configs['n_cal']
         n_ev = config.test_param_configs['n_ev']
@@ -139,6 +142,7 @@ def main_pval(config_dir, **kwargs):
         for n_tr in n_tr_list:
             for r in num_models:
                 print("\n------------------- TEST n_tr = %d, repeated trained network = %d -------------------"%(n_tr,r))
+                print('config_dir = ', config_dir)
                 ckpt_dir = os.path.join(chekpoints_path, 'n_tr=%d#%d'%(n_tr,r))
                 # ckpt_dir = chekpoints_path+'/n_tr=%d'%(n_tr+r)
                 kernel = torch.load(ckpt_dir+'/kernel.pt')
@@ -173,14 +177,15 @@ def simulate_error(dataset_P, dataset_Q,
                    pi, m,
                    batch_size,
                    plot_hist_path=None,
-                   callback=None,):
+                   callback=None,
+                   verbose=True):
     """simulate test error by 'repeats' times"""
     with torch.no_grad():
         m_num = m.shape[0]
         type_1_error_list = np.zeros([m_num, len(repeats)])
         type_2_error_list = np.zeros([m_num, len(repeats)])
         # run many times
-        for j in tqdm(repeats, desc='progress of repeating in n_tr=%d'%n_tr):
+        for j in tqdm(repeats, disable= not verbose, desc='progress in repeating n_tr=%d, n_ev=%d'%(n_tr,n_ev), leave=False):
             idx = np.random.choice(dataset_P.shape[0]-n_tr, n_ev+n_cal, replace=False)+n_tr
             idy = np.random.choice(dataset_Q.shape[0]-n_tr, n_ev+n_cal, replace=False)+n_tr
             X_ev = dataset_P[ idx[:n_ev] ]
@@ -190,7 +195,7 @@ def simulate_error(dataset_P, dataset_Q,
             # Compute the test statistic on the test data
             X_scores = kernel.compute_scores(X_ev, Y_ev, X_cal, batch_size=batch_size, max_loops=99999999) # shape=(n_cal,)
             Y_scores = kernel.compute_scores(X_ev, Y_ev, Y_cal, batch_size=batch_size, max_loops=99999999) # shape=(n_cal,)
-            gamma = kernel.compute_gamma(X_ev, Y_ev, pi)
+            gamma = kernel.compute_gamma(X_ev, Y_ev, pi, verbose=verbose)
             # gamma = (1-pi/2)*torch.mean(X_scores) + pi/2*torch.mean(Y_scores)
             type_1_error, type_2_error = get_error_from_evaluated_scores(X_scores, Y_scores, pi, gamma, m)
             type_1_error_list[:, j] = type_1_error
@@ -204,7 +209,7 @@ def simulate_error(dataset_P, dataset_Q,
             # callback
             if callback != None:
                 callback()
-        return type_1_error_list, type_2_error_list
+    return type_1_error_list, type_2_error_list
 
 def main_error(config_dir, **kwargs):
     with torch.no_grad():
@@ -221,6 +226,7 @@ def main_error(config_dir, **kwargs):
         from model import Model
         # load params
         overwrite = False
+        os.environ["CUDA_VISIBLE_DEVICES"]=config.test_param_configs['gpu']
         n_list = config.test_param_configs['error_n_list']
         m_list = config.test_param_configs['error_m_list']
         pi = config.test_param_configs['error_pi']
@@ -232,7 +238,7 @@ def main_error(config_dir, **kwargs):
         if 'gpu' in kwargs.keys():
             os.environ["CUDA_VISIBLE_DEVICES"] = kwargs['gpu']; 
         if 'n_list' in kwargs.keys():
-            n_list = kwargs['n']
+            n_list = json.loads(kwargs['n_list'])
         if 'overwrite' in kwargs.keys():
             overwrite = kwargs['overwrite']
         # load data

@@ -42,7 +42,7 @@ def get_grads(X, sol, L, P, batch_size=2, device='cpu', dtype=torch.float, verbo
     del step3, step2, x1, G
     return M
 
-def Pdist2(x, y):
+def Pdist2(x, y=None):
     """compute the paired distance between x and y."""
     x_norm = (x ** 2).sum(1).view(-1, 1)
     if y is not None:
@@ -53,19 +53,16 @@ def Pdist2(x, y):
     Pdist = x_norm + y_norm - 2.0 * torch.mm(x, torch.transpose(y, 0, 1))
     Pdist[Pdist<0]=0
     return Pdist
-def median(X,Y,L=1):
+
+def median(X,):
     '''Implementation of the median heuristic. See Gretton 2012'''
-    n1, d1 = X.shape
-    n2, d2 = Y.shape
-    assert d1 == d2, 'Dimensions of input vectors must match'
-    Dxy = Pdist2(X, Y)
-    mdist2 = torch.median(Dxy)
+    Dxx = Pdist2(X)
+    mdist2 = torch.median(Dxx)
     sigma = torch.sqrt(mdist2)
     return sigma
     
 def rfm(train_loader, test_loader,
-        N_epoch=3, name=None, batch_size=2, reg=1e-3,
-        train_acc=False, loader=True, classif=True,
+        N_epoch=3, batch_size=2, reg=1e-3,
         device=torch.device('cpu'), dtype=torch.float32,
         checkpoint_path=None,
         early_stopping=None,
@@ -83,7 +80,8 @@ def rfm(train_loader, test_loader,
     M = torch.eye(d, device = device, dtype=dtype)
     if median_heuristic:
         print("median heuristic: ", end='')
-        sigma = median(list(train_loader)[0][0], list(train_loader)[0][0])
+        # sigma = median(list(train_loader)[0][0])
+        sigma = torch.tensor(6.0, device=device, dtype=dtype)
         print(sigma)
         M *= 1/sigma**2
     M_last_patience_stack = [torch.eye(d, device = device, dtype=dtype)]*patience
